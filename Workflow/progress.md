@@ -12,7 +12,7 @@
 | **Current phase** | Phase 1 — Worker Connection & Pairing (Phase 0 ✅) |
 | **Current task** | Live test of 1.2–1.6 (needs service-role key), then 1.7 owner alerts |
 | **Blockers** | None |
-| **Last updated** | 2026-10-18 (Phase 1 plan approved; 1.1 worker boot done) |
+| **Last updated** | 2026-10-18 (Phase 1 tasks 1.1–1.6 built and unit-tested; live test pending) |
 
 ---
 
@@ -201,6 +201,20 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-18 — Claude (Phase 1: worker connection and pairing, 1.1–1.6)
+- Task(s): 1.1–1.6 on branch `phase-1` (one commit per task; not pushed).
+- Done: worker env validation and pino logging; leader lock with renewal, fencing and a leader-only session loop; encrypted Supabase auth state (AES-256-GCM, debounced batched writes, writes only while holding the lock); connection manager on Baileys `7.0.0-rc14`; pairing watcher (Realtime + 10 s poll); reconnect policy; heartbeat; dashboard `<WorkerStatus>`, `/connection` page, `<PairingCodeCard>`, `<ConfirmDialog>`, `requestPairing` / `cancelPairing` actions with audit.
+- Verified: `pnpm typecheck`, `pnpm lint`, `pnpm test` (shared 29, worker 63, dashboard 36), `pnpm format:check`, `pnpm --filter dashboard build` all pass. Manual: worker exits with a list of missing env vars; boots and shuts down cleanly with valid env.
+- **Not yet verified live:** nothing has run against Supabase or WhatsApp yet. Needs `SUPABASE_SERVICE_ROLE_KEY` in `apps/worker/.env` (created this session, gitignored, with a generated `SESSION_ENCRYPTION_KEY`) and in `apps/dashboard/.env.local`.
+- Changed docs: `architecture.md`, `api-interfaces.md`, `ui-context.md`, `progress.md`.
+- Decisions: ADR-023 (agent may run commands, supersedes ADR-016), ADR-024 (env vars required by phase).
+- Next: live test of the exit criteria (link, restart without re-pair, second instance on standby, offline within 60 s), then 1.7 owner alerts once the Meta template details are known.
+- Notes / issues:
+  - Back up `SESSION_ENCRYPTION_KEY` from `apps/worker/.env`; changing it later forces a relink.
+  - Pairing code lifetime is set to 120 s `[DEFAULT]`; adjust after the live test.
+  - `shadcn add` now pulls in a separate `cn` npm package; it was removed and the generated files point at `@/lib/utils`.
+  - On Windows, `process.kill(pid, "SIGINT")` terminates without running handlers; Ctrl+C and Linux SIGTERM work normally.
 
 ### 2026-10-18 — Claude (dashboard shell and shared schemas)
 - Task(s): 0.5, 0.6 (step 04, `Workflow/Phases/04-Dashboard-Shell.md`)
