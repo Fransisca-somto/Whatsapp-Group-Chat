@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+/* Design tokens: ui-context.md §2. Components use these through Tailwind classes
+   (bg-surface, text-muted-foreground, bg-status-ok/10 …); never raw hex values. */
+:root {
+  --background: #fafaf9;
+  --surface: #ffffff;
+  --border: #e7e5e4;
+  --foreground: #1c1917;
+  --muted-foreground: #78716c;
+  --primary: #15803d;
+  --primary-foreground: #ffffff;
+  --destructive: #b91c1c;
+
+  /* Derived tokens used by the shadcn/ui primitives. */
+  --muted: #f5f5f4;
+  --accent: #f5f5f4;
+  --accent-foreground: var(--foreground);
+  --input: var(--border);
+  --ring: var(--primary);
+
+  /* Status colors, used only through <StatusBadge>. */
+  --status-ok: #15803d;
+  --status-info: #1d4ed8;
+  --status-warn: #b45309;
+  --status-error: #b91c1c;
+  --status-neutral: #57534e;
+
+  --radius: 0.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0c0c0e;
+    --surface: #16161a;
+    --border: #2a2a30;
+    --foreground: #f5f5f4;
+    --muted-foreground: #a1a1aa;
+    --primary: #22c55e;
+    --primary-foreground: #052e16;
+    --destructive: #ef4444;
+
+    --muted: #1f1f24;
+    --accent: #1f1f24;
+
+    --status-ok: #4ade80;
+    --status-info: #60a5fa;
+    --status-warn: #fbbf24;
+    --status-error: #f87171;
+    --status-neutral: #a1a1aa;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-card: var(--surface);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-destructive: var(--destructive);
+
+  --color-status-ok: var(--status-ok);
+  --color-status-info: var(--status-info);
+  --color-status-warn: var(--status-warn);
+  --color-status-error: var(--status-error);
+  --color-status-neutral: var(--status-neutral);
+
+  --radius-md: var(--radius);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: light dark;
+  }
+  body {
+    @apply bg-background font-sans text-foreground;
+  }
+}
