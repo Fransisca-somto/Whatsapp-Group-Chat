@@ -12,7 +12,7 @@
 | UI | **Tailwind CSS 4 + shadcn/ui** (Base UI primitives), lucide-react icons, **sonner** toasts, Inter and JetBrains Mono via `next/font` | See `ui-context.md`. Tailwind 4 has no `tailwind.config.ts`; tokens are mapped in `app/globals.css` with `@theme inline`. |
 | Dashboard forms | **react-hook-form** + `@hookform/resolvers` (zod) | Schemas come from `packages/shared`. |
 | Worker | **Node.js LTS + TypeScript**, deployed on **Railway or Fly.io** (single instance) | Baileys needs an always-on process holding a live socket. Serverless is not allowed for the worker. |
-| WhatsApp (groups) | **Baileys** (`@whiskeysockets/baileys`), version pinned exactly | Unofficial WhatsApp Web client. |
+| WhatsApp (groups) | **Baileys** (`baileys`, formerly `@whiskeysockets/baileys`), pinned exactly at `7.0.0-rc14` | Unofficial WhatsApp Web client. |
 | WhatsApp (alerts only) | Existing **Meta Cloud API** integration | Used only to alert the owner. |
 | Database | **Supabase Postgres** with **pgvector** and full-text search | Relational data, hybrid search and session storage in one place. |
 | Auth (dashboard) | **Supabase Auth** (email + password, sign-ups disabled) via `@supabase/ssr` | Browser and server clients in `apps/dashboard/lib/supabase/`. `apps/dashboard/proxy.ts` (Next.js 16's replacement for `middleware.ts`) refreshes the session and redirects signed-out visitors to `/login`; it is an optimistic check only. `server/currentUser.ts` re-checks the `dashboard_users` role; a user with no row is sent to `/auth/signout?reason=no_access`. |
@@ -118,6 +118,10 @@ A WhatsApp linked device must have exactly one live connection.
 - Values are **encrypted at rest with AES-256-GCM** using `SESSION_ENCRYPTION_KEY`.
 - In-memory cache is the read path; writes are **debounced (500 ms) and batched** into one upsert. `creds` are written immediately.
 - On logout (`DisconnectReason.loggedOut`) or relink: delete all rows in `wa_auth_state`, set connection status `logged_out`.
+- Implementation: `whatsapp/authState.ts` (adapter), `whatsapp/crypto.ts` (AES-256-GCM, the row key is bound as associated data so a value moved to another row fails to decrypt), `db/authStateRepo.ts` (reads paged by 1000, upserts chunked by 500, deletes by 100).
+- Writes happen only while the instance holds the leader lock. On fence, pending writes are **discarded**, never flushed, so a fenced worker cannot overwrite the new holder's session.
+- `SESSION_ENCRYPTION_KEY` must never change for a linked session: a new key makes the stored session unreadable and forces a relink. Keep a backup of it outside the host.
+- Baileys is pinned exactly (`baileys@7.0.0-rc14`; the package was renamed from `@whiskeysockets/baileys` in v7). Its install scripts (an engine check) and protobufjs' postinstall are disabled in `allowBuilds`; neither is needed at runtime.
 
 ## 7. Reconnect Policy
 
