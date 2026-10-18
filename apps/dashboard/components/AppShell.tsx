@@ -13,6 +13,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { isNavItemActive, NAV_ITEMS } from "./navItems";
 import { SidebarNav } from "./Sidebar";
 import { UserMenu } from "./UserMenu";
+import { WorkerStatus } from "./WorkerStatus";
 
 type AppShellProps = {
   user: { displayName: string; role: DashboardRole };
@@ -51,9 +52,8 @@ export function AppShell({ user, children }: AppShellProps) {
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground">
           {pageTitle}
         </span>
-        {/* Live <WorkerStatus /> arrives with task 1.6. */}
-        <div data-slot="worker-status" className="hidden text-xs text-muted-foreground sm:block">
-          Worker status: not available yet
+        <div data-slot="worker-status">
+          <WorkerStatus />
         </div>
         <UserMenu displayName={user.displayName} role={user.role} />
       </header>

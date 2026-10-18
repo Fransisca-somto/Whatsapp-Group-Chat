@@ -94,7 +94,12 @@ export function createConnectionManager(options: ConnectionManagerOptions): Conn
 
   async function setStatus(status: WaConnectionStatus, extra: ConnectionPatch = {}) {
     try {
-      await store.update({ status, instance_id: instanceId, ...extra });
+      await store.update({
+        status,
+        instance_id: instanceId,
+        last_heartbeat_at: new Date().toISOString(), // every status change is also a heartbeat
+        ...extra,
+      });
     } catch (error) {
       log.error({ err: error, status }, "could not record connection status");
     }

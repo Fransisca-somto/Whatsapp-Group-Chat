@@ -11,6 +11,7 @@ import { createServiceClient } from "./db/supabase.ts";
 import { EnvError, parseEnv } from "./env.ts";
 import { createLeaderLock } from "./lock/leaderLock.ts";
 import { runLeaderLoop, type StartLeaderSession } from "./lock/leaderLoop.ts";
+import { createHeartbeat } from "./health/heartbeat.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { createPairingWatcher } from "./pairing/pairingWatcher.ts";
 import { createSupabaseAuthState } from "./whatsapp/authState.ts";
@@ -77,12 +78,15 @@ function main() {
       onAlert: (kind, detail) => logger.warn({ kind, detail }, "owner alert"),
     });
     const pairing = createPairingWatcher({ store: pairingRepo, connection, logger });
+    const heartbeat = createHeartbeat({ store: connectionRepo, instanceId, logger });
     await connection.start();
     await pairing.start();
+    await heartbeat.start();
 
     return async () => {
       // Lock lost: never write session state again from this instance.
       if (!lock.isHeld()) auth.discardPending();
+      heartbeat.stop();
       await connection.stop(); // closes the socket first
       await pairing.stop();
     };

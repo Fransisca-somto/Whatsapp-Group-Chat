@@ -83,17 +83,18 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 ## 5. Component Conventions
 
 - Use **shadcn/ui primitives** from `components/ui/` for all basics (Button, Input, Dialog, Table, Tabs, Switch, Select, Badge, Toast). Do not build parallel versions.
+- Installed primitives: badge, button, dialog, dropdown-menu, input, label, sheet, skeleton. Generated files must import `cn` from `@/lib/utils` (newer shadcn templates import a separate `cn` npm package; we do not add it) and may only use button sizes our `button.tsx` defines.
 - Shared app components live in `components/` and must be listed here (✅ = built):
 
 | Component | Purpose |
 |---|---|
-| `<WorkerStatus />` | Live connection indicator (Realtime). Dot + label + "last seen Xs ago". |
+| `<WorkerStatus />` ✅ | Live connection indicator (Realtime). Dot + label + "last seen Xs ago" (label hidden below `lg`). In the `<AppShell>` top bar. Data from `lib/useWorkerConnection.ts`; offline rule in `lib/workerStatus.ts`. |
 | `<StatusBadge status=... />` ✅ | The only way to render statuses. Maps status → color token and label. |
-| `<ConfirmDialog />` | Required for every destructive action. Relink requires typing `RELINK`. |
+| `<ConfirmDialog />` ✅ | Required for every destructive action. Optional `confirmWord` (relink uses `RELINK`), extra fields as children, `canConfirm` for extra validation; cannot be closed while `pending`. |
 | `<DateTimeInCompanyTz />` ✅ | Displays any timestamp in the company timezone. |
 | `<DateTimePicker />` | Inputs interpreted in company timezone; shows timezone label. |
 | `<PhoneInput />` | Normalizes to E.164; validates before submit. |
-| `<PairingCodeCard />` | Large monospace code, expiry countdown, Retry button. |
+| `<PairingCodeCard />` ✅ | Large monospace code shown as `ABCD-1234`, expiry countdown, linking steps, Cancel (open request) and Retry (expired / failed / cancelled). |
 | `<EmptyState />` ✅ | Icon, one-line explanation, primary action. |
 | `<PageHeader />` ✅ | Page title, optional description, actions on the right. |
 | `<AppShell />` ✅ | Top bar (logo, page title, worker-status slot, `<UserMenu />`) plus `<Sidebar />`; the sidebar becomes a drawer on mobile. Items come from `components/navItems.ts`; owner-only items are hidden for staff. |

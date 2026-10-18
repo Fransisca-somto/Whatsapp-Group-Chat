@@ -77,7 +77,7 @@
 ```
 
 1. **The dashboard never talks to the worker directly.** All coordination goes through Supabase tables and Realtime (`api-interfaces.md` §2). The worker exposes no public HTTP endpoints except an optional private `/healthz` for the host.
-2. **The dashboard reads through RLS** using the logged-in user's session, and writes through **server actions** that validate with zod and re-check the user's role.
+2. **The dashboard reads through RLS** using the logged-in user's session, and writes through **server actions** that validate with zod and re-check the user's role. The service-role key is used in the dashboard **only** by `lib/supabase/admin.ts`, and that client is imported **only** by `server/audit.ts` to append `bot_actions` rows (dashboard roles cannot write the audit log, ADR-019). `SUPABASE_SERVICE_ROLE_KEY` must be set in `apps/dashboard/.env.local` and on Vercel.
 3. **The worker uses the Supabase service-role key** and is the only component that writes messages, session state, heartbeats and sent-status.
 4. **Inside the worker, modules talk through functions, not globals.** Only `whatsapp/` touches the Baileys socket. Only `ai/` calls OpenRouter. Only `db/` calls Supabase.
 5. **`packages/shared` has no runtime dependencies on either app.**

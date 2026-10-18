@@ -41,7 +41,7 @@
     - After the phone confirms, WhatsApp closes with `restartRequired`; the worker reconnects at once and marks the request `paired` when the connection opens.
 
 ### 2.2 Health
-- Worker upserts `wa_connection.last_heartbeat_at` every **15 s** and on every status change.
+- Worker upserts `wa_connection.last_heartbeat_at` every **15 s** and on every status change. Only the lock holder writes it (`health/heartbeat.ts`), and it also stamps `instance_id`. An unlinked worker still beats, so the dashboard shows "Not linked" rather than "Offline".
 - Dashboard subscribes to `wa_connection` and renders `<WorkerStatus>`: `offline` if the heartbeat is older than 60 s, otherwise `status`.
 
 ### 2.3 Group, schedule and knowledge changes
@@ -52,7 +52,7 @@
 
 ## 3. Dashboard Server Actions
 
-All live in `apps/dashboard/server/actions/`. Each one: (1) gets the session, (2) checks role, (3) validates input with zod, (4) writes, (5) writes a `bot_actions` row for audit where listed, (6) returns `{ ok: true, data } | { ok: false, error: string }`.
+All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audit.ts` (`auditDashboardAction`); if the audit write fails after the main write succeeded, the action still returns `ok` and logs the error. Each one: (1) gets the session, (2) checks role, (3) validates input with zod, (4) writes, (5) writes a `bot_actions` row for audit where listed, (6) returns `{ ok: true, data } | { ok: false, error: string }`.
 
 | Action | Role | Input schema | Audit |
 |---|---|---|---|
@@ -66,7 +66,8 @@ All live in `apps/dashboard/server/actions/`. Each one: (1) gets the session, (2
 | `updateScheduledPost` | owner, staff | `{ id, ...ScheduledPostInput }` (only if status = scheduled) | ✅ |
 | `cancelScheduledPost` | owner, staff | `{ id }` | ✅ |
 | `resendScheduledPost` | owner, staff | `{ id }` (only if `delivery_uncertain` or `failed`) | ✅ |
-| `requestPairing` | owner | `{ kind, phoneE164 }` | ✅ |
+| `requestPairing` | owner | `PairingRequestInput { kind, phoneE164 }` (shared `pairingRequestInputSchema`). An already-open request returns "A pairing request is already open. Cancel it first." | ✅ `pairing_requested` / `relink_requested` |
+| `cancelPairing` | owner | `CancelPairingInput { requestId }`; sets `cancelled` only while `requested` / `code_issued` | — |
 | `updateCompanySettings` | owner | `{ companyName, timezone, ownerAlertPhone, botDisplayName }` | ✅ |
 
 `dueAtLocal` is a local date-time string interpreted in the company timezone and converted to UTC on the server with `packages/shared/time.ts`.
