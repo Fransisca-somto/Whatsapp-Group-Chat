@@ -10,9 +10,9 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 1 — Worker Connection & Pairing (Phase 0 ✅) |
-| **Current task** | Live test of 1.2–1.6 (needs service-role key), then 1.7 owner alerts |
+| **Current task** | 1.7 owner alerts (1.1–1.6 ✅ verified live) |
 | **Blockers** | None |
-| **Last updated** | 2026-10-18 (Phase 1 tasks 1.1–1.6 built and unit-tested; live test pending) |
+| **Last updated** | 2026-10-18 (1.1–1.6 verified live; number linked) |
 
 ---
 
@@ -201,6 +201,23 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-18 — Claude (Phase 1 live test)
+- Task(s): live verification of 1.2–1.6 against the real Supabase project and the bot's number.
+- Verified live:
+  - Worker boots, takes the lock, idles as `not_linked` and heartbeats every 15 s.
+  - A second worker stays on standby while the first holds the lock (tested three times, including by accident when a killed shell left the first worker running).
+  - After a hard kill, the standby takes over once the 30 s lease expires, never earlier.
+  - Pairing from `/connection`: code issued ~3 s after the request; after the phone confirmed, WhatsApp closed with 515, the worker reconnected at once and the request became `paired`. Dashboard showed Connected with the linked number.
+  - Restart without re-pairing: the new worker loaded the saved session (8,528 encrypted rows, `registered: true`) and connected with no code.
+  - Offline: 78 s after a hard kill the heartbeat was stale, so the dashboard rule shows Offline (row status stays `connected`, as expected for a dead worker).
+- Fixed: removed `shouldSyncHistoryMessage: () => false` from the socket config. Baileys warned it blocks the LID → phone mappings that Phase 2 authorization needs. The default (skip only FULL history sync) is now used; reconnect verified with no warning.
+- Not yet done: 1.7 owner alerts (waiting on Meta template details and the offline-alert method).
+- Notes / issues:
+  - The owner's network intermittently could not reach Supabase (`fetch failed`, supabase.com unreachable while other sites worked). The worker fenced and recovered correctly. The login page reports such network errors as "incorrect password"; a clearer message was proposed and awaits approval.
+  - On Windows, stopping a background shell can leave the worker running. Stop it with `taskkill /F /T /PID <npx pid>`.
+  - The session is ~8,500 rows; loading takes ~5 s on this connection. Fine for now; revisit if startup gets slow.
+  - The bot's number is linked. Do not run a second copy of the worker anywhere else (e.g. on Railway) while testing locally; the lock protects WhatsApp, but only one place should be the intended host.
 
 ### 2026-10-18 — Claude (Phase 1: worker connection and pairing, 1.1–1.6)
 - Task(s): 1.1–1.6 on branch `phase-1` (one commit per task; not pushed).

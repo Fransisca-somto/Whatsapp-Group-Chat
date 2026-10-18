@@ -343,8 +343,9 @@ export function createBaileysSocketFactory(logger: Logger): SocketFactory {
       logger: baileysLogger,
       browser: Browsers.macOS("Chrome"),
       markOnlineOnConnect: false,
+      // No full history download. Baileys' default history filter is kept on purpose: it skips
+      // only FULL syncs, and blocking every sync stops Baileys learning LID → phone mappings.
       syncFullHistory: false,
-      shouldSyncHistoryMessage: () => false,
       ...(version ? { version } : {}),
     });
   };
