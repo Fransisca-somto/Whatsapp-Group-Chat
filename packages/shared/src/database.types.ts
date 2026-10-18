@@ -733,6 +733,7 @@ export type Database = {
         Args: { p_instance: string; p_lease_seconds?: number }
         Returns: boolean
       }
+      check_worker_offline: { Args: never; Returns: undefined }
       claim_due_posts: {
         Args: { p_claim_token: string; p_limit?: number }
         Returns: {
@@ -762,6 +763,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      configure_alert_email: {
+        Args: { p_api_key: string; p_from: string; p_recipients: string[] }
+        Returns: undefined
       }
       current_dashboard_role: { Args: never; Returns: string }
       search_group_history: {

@@ -63,7 +63,7 @@ These apply everywhere. If a task seems to require breaking one, stop and raise 
 2. **Out of scope means out of scope.** If it is listed under "Out of Scope" in `project-overview.md`, do not build it, even partially, even "for later".
 3. **The AI proposes, code authorizes.** The LLM may classify intent and parse text. It must never decide permissions, never write to the database directly, and its output must always be validated by deterministic code before any action.
 4. **Exactly one WhatsApp connection.** Never write code that could let two worker instances connect at once. All connection logic goes through the leader lock (`architecture.md` §5).
-5. **Never touch the customer-chat system** (Meta Cloud API webhooks, customer conversation tables). The only allowed use of the Cloud API is sending owner alerts through the existing integration.
+5. **Never touch the customer-chat system** (Meta Cloud API webhooks, customer conversation tables). This project does not use the Cloud API at all; owner alerts go by email through Resend (ADR-025).
 6. **Schema changes only via migrations** in `supabase/migrations/`. Never edit the database by hand. Every schema change must also update `Workflow/data-models.md` in the same task.
 7. **No secrets in code.** Use environment variables listed in `architecture.md` §8.
 8. **Types are shared, not duplicated.** Shared types and zod schemas live in `packages/shared`.

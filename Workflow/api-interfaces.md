@@ -14,7 +14,7 @@
 | 4 | Worker ↔ WhatsApp | Baileys socket events and send queue |
 | 5 | Worker → OpenRouter | Chat completions (intent + answer) |
 | 6 | Worker → Embeddings API | Embedding generation |
-| 7 | Worker → Meta Cloud API | Owner alerts only |
+| 7 | Worker / database → Resend | Owner alert email |
 | 8 | Worker internal | Module contracts |
 
 ---
@@ -197,15 +197,24 @@ Messages from anyone other than the requester never affect the request.
 
 ---
 
-## 7. Worker → Meta Cloud API (owner alerts only)
+## 7. Owner alert email (Resend)
 
-- `health/alerts.ts` → `sendOwnerAlert(kind, message)`.
-- Uses the existing Cloud API integration: `POST https://graph.facebook.com/<version>/<META_PHONE_NUMBER_ID>/messages` with a pre-approved template (required outside the 24-hour window). Template name configured in env.
-- Before sending, insert into `alerts` with a unique `incident_key` (e.g. `offline:2026-10-03T14`); if it already exists, do not send.
-- When the condition clears, set `resolved_at`.
-- **Never** read or write any customer-chat data.
+ADR-025. Email replaces the earlier Cloud API WhatsApp alert; the Cloud API is not used by this project.
 
-Offline detection when the worker itself is dead: a Supabase scheduled function (pg_cron) checks `wa_connection.last_heartbeat_at` every minute and, if stale > 5 min, calls the alert via an Edge Function. `[DEFAULT]`
+**Sending:** `POST https://api.resend.com/emails` with `Authorization: Bearer $RESEND_API_KEY`, body `{ from, to: string[], subject, text }`. Worker: `health/email.ts` (10 s timeout, one retry on network error / 429 / 5xx, no retry on other 4xx).
+
+**Incidents:** one email per incident. An incident is an unresolved `alerts` row of that kind; `incident_key` = `<kind>:<ISO time>`.
+
+| Kind | Raised by | When | Resolved when |
+|---|---|---|---|
+| `logged_out` | worker (`health/alerts.ts`) | logout / bad session / forbidden / multi-device mismatch | the bot connects again |
+| `conflict` | worker | connection replaced by another device | the bot connects again |
+| `reconnect_failures` | worker | 10th consecutive failed reconnect | the bot connects again |
+| `offline` | database (`check_worker_offline()`, every minute) | `last_heartbeat_at` older than 5 min (never if the worker has never run) | heartbeat fresh again, or a leader session starts |
+
+**Email text:** subject `[Group Assistant] <what happened>`; body says what happened, when (company timezone), the detail, what to do, and a dashboard link when `DASHBOARD_URL` is set.
+
+**Database settings:** on every leader start the worker calls `configure_alert_email(api_key, recipients, from)`, which stores them in Supabase Vault (`alert_resend_api_key`, `alert_recipients`, `alert_from`). The database job reads them from `vault.decrypted_secrets`; nothing secret is in migrations. `pg_net` sends asynchronously, so `sent_at` on an `offline` alert means "queued"; Resend's dashboard shows delivery.
 
 ---
 

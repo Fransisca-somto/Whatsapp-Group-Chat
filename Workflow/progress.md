@@ -10,7 +10,7 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 1 — Worker Connection & Pairing (Phase 0 ✅) |
-| **Current task** | 1.7 owner alerts (1.1–1.6 ✅ verified live) |
+| **Current task** | 1.7 owner alerts: apply migration 0008, then live test (1.1–1.6 ✅ verified live) |
 | **Blockers** | None |
 | **Last updated** | 2026-10-18 (1.1–1.6 verified live; number linked) |
 
@@ -36,7 +36,7 @@ Phases run in order. Do not start a phase until the previous one is ✅, unless 
 - ✅ 1.4 Pairing flow via `pairing_requests` (pair + relink).
 - ✅ 1.5 Reconnect policy per `architecture.md` §7.
 - ✅ 1.6 Heartbeat + `<WorkerStatus>` + `/connection` page with `<PairingCodeCard>`.
-- ⬜ 1.7 Owner alerts via Meta Cloud API (logged out, offline >5 min, repeated failures).
+- 🟦 1.7 Owner alerts by email via Resend (logged out, conflict, offline >5 min, repeated failures). Built; waiting for migration 0008 and the live test.
 - **Exit criteria:** owner links the number from the dashboard; worker survives restart without re-pairing; killing the worker shows offline within 60 s and alerts within 5 min; a second worker instance cannot connect.
 
 ### Phase 2 — Groups & Message Ingestion ⬜
@@ -165,6 +165,9 @@ Context: ADR-016 had the owner run every command; this was already set aside in 
 
 **ADR-024 — Env variables required by phase · 2026-10-18 · Accepted**
 Context: `architecture.md` §8 required every worker variable on boot, so the worker could not start in Phase 1 without OpenRouter and Meta keys. Decision: a variable becomes required in the task that first uses it (Supabase + session key in 1.1, Meta in 1.7, OpenRouter/embeddings in Phase 3); before that it is optional but format-checked. Consequences: each of those tasks must flip its variables to required in `apps/worker/src/env.ts`.
+
+**ADR-025 — Owner alerts by email through Resend · 2026-10-18 · Accepted (owner decision; supersedes the Cloud API alert in overview §4.7)**
+Context: The company had no approved Meta template, and WhatsApp alerts would depend on Meta approval and paid template messages. Decision: Alerts go by email via Resend's free plan, called with plain `fetch`. The worker sends logged-out, conflict and reconnect-failure alerts; the database (`pg_cron` + `pg_net`, migration 0008) sends the worker-offline alert, reading the Resend key and recipients from Supabase Vault, where the worker writes them on startup. Consequences: the Meta Cloud API is no longer used by this project at all (CLAUDE.md rule 5 updated). Resend's free test sender only reaches the Resend account's own address (currently `fransiscasomto@gmail.com`); more recipients need a verified domain. The `META_*` and `OWNER_ALERT_PHONE` variables are removed; `company_settings.owner_alert_phone` is unused for now.
 
 ---
 

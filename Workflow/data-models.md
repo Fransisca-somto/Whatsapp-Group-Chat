@@ -313,6 +313,12 @@ returning true;
 ```
 Returns false when no row was updated. (Implemented in plpgsql with `return found`; the SQL above shows the logic.)
 
+### 5.5 Owner alert functions (migration `0008_offline_alert.sql`)
+- Extensions `pg_cron` and `pg_net` are enabled; Supabase Vault (preinstalled) holds the email settings.
+- `configure_alert_email(p_api_key text, p_recipients text[], p_from text) returns void`: creates or updates the Vault secrets `alert_resend_api_key`, `alert_recipients` (JSON array) and `alert_from`. `security definer`, `service_role` only. Called by the worker on every leader start.
+- `check_worker_offline() returns void`: if `wa_connection.last_heartbeat_at` is older than 5 minutes and no `offline` alert is open, inserts `alerts(kind 'offline', incident_key 'offline:<heartbeat UTC>')`, queues an email to Resend through `net.http_post` and sets `sent_at`; if the heartbeat is fresh, resolves open `offline` alerts. Does nothing if the worker has never sent a heartbeat. `security definer`, `service_role` only.
+- `pg_cron` job `worker-offline-check` runs `check_worker_offline()` every minute. The migration unschedules any job with that name first, so re-running it never duplicates the job.
+
 **Implementation notes (migration `0006_functions.sql`)**
 - Both search functions order each branch by rank *before* `limit 30`, skip the semantic branch when the query embedding is null, and re-check `group_id` in the final select.
 - Search functions, `claim_due_posts` and `acquire_worker_lock` are executable by `service_role` only.

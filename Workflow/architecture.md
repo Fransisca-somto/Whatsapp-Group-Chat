@@ -13,7 +13,7 @@
 | Dashboard forms | **react-hook-form** + `@hookform/resolvers` (zod) | Schemas come from `packages/shared`. |
 | Worker | **Node.js LTS + TypeScript**, deployed on **Railway or Fly.io** (single instance) | Baileys needs an always-on process holding a live socket. Serverless is not allowed for the worker. |
 | WhatsApp (groups) | **Baileys** (`baileys`, formerly `@whiskeysockets/baileys`), pinned exactly at `7.0.0-rc14` | Unofficial WhatsApp Web client. |
-| WhatsApp (alerts only) | Existing **Meta Cloud API** integration | Used only to alert the owner. |
+| Owner alerts | **Resend** email HTTP API (free plan), called with `fetch` (no SDK) | ADR-025. The worker sends logged-out / conflict / reconnect-failure alerts; the database (`pg_cron` + `pg_net`) sends the worker-offline alert. The free test sender only delivers to the Resend account's own address until a domain is verified. |
 | Database | **Supabase Postgres** with **pgvector** and full-text search | Relational data, hybrid search and session storage in one place. |
 | Auth (dashboard) | **Supabase Auth** (email + password, sign-ups disabled) via `@supabase/ssr` | Browser and server clients in `apps/dashboard/lib/supabase/`. `apps/dashboard/proxy.ts` (Next.js 16's replacement for `middleware.ts`) refreshes the session and redirects signed-out visitors to `/login`; it is an optimistic check only. `server/currentUser.ts` re-checks the `dashboard_users` role; a user with no row is sent to `/auth/signout?reason=no_access`. |
 | Realtime | **Supabase Realtime** | Dashboard sees worker status and pairing codes live; worker receives requests. |
@@ -72,7 +72,7 @@
  Dashboard (Vercel) ──► Supabase ◄── Worker (Railway/Fly) ──► WhatsApp (Baileys)
         │                  ▲                │
         │                  │                ├──► OpenRouter (chat + embeddings)
-        └── no direct ─────┘                └──► Meta Cloud API (owner alerts only)
+        └── no direct ─────┘                └──► Resend (owner alert email)
             connection to worker
 ```
 
@@ -147,9 +147,10 @@ OPENROUTER_CHAT_MODEL         # default: anthropic/claude-haiku (exact slug pinn
 OPENROUTER_FALLBACK_MODEL
 EMBEDDINGS_API_KEY
 EMBEDDINGS_MODEL              # default: text-embedding-3-small
-META_CLOUD_API_TOKEN          # for owner alerts
-META_PHONE_NUMBER_ID
-OWNER_ALERT_PHONE             # E.164
+RESEND_API_KEY                # owner alert email (required from 1.7)
+OWNER_ALERT_EMAILS            # comma-separated recipients (required from 1.7)
+ALERT_FROM_EMAIL              # default: Group Assistant <onboarding@resend.dev>
+DASHBOARD_URL                 # optional; adds a dashboard link to alert emails
 LOG_LEVEL
 ```
 **Dashboard**
@@ -158,7 +159,7 @@ NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY     # server-only, used sparingly in server actions
 ```
-The worker validates all variables with zod on boot (`apps/worker/src/env.ts`) and exits with a clear error listing every missing or invalid variable by name (never its value). Variables become **required in the task that first uses them** (ADR-024): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SESSION_ENCRYPTION_KEY` from task 1.1; the `META_*` and `OWNER_ALERT_PHONE` variables from task 1.7; OpenRouter and embeddings variables from Phase 3. Until then they are optional but still format-checked when set. Empty values count as unset.
+The worker validates all variables with zod on boot (`apps/worker/src/env.ts`) and exits with a clear error listing every missing or invalid variable by name (never its value). Variables become **required in the task that first uses them** (ADR-024): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SESSION_ENCRYPTION_KEY` from task 1.1; `RESEND_API_KEY` and `OWNER_ALERT_EMAILS` from task 1.7; OpenRouter and embeddings variables from Phase 3. Until then they are optional but still format-checked when set. Empty values count as unset.
 
 Locally the worker reads `apps/worker/.env` through Node's built-in `--env-file-if-exists` flag in its `dev` and `start` scripts (no `dotenv`). On the host, variables come from the platform and no file is needed.
 

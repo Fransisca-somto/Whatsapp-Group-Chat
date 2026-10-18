@@ -8,6 +8,8 @@ const valid = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: "service-role-secret",
   SESSION_ENCRYPTION_KEY: KEY,
+  RESEND_API_KEY: "re_test",
+  OWNER_ALERT_EMAILS: "owner@example.com",
 };
 
 function problemsFor(source: Record<string, string | undefined>): string[] {
@@ -35,6 +37,8 @@ describe("parseEnv", () => {
       "SUPABASE_URL is required",
       "SUPABASE_SERVICE_ROLE_KEY is required",
       "SESSION_ENCRYPTION_KEY is required",
+      "RESEND_API_KEY is required",
+      "OWNER_ALERT_EMAILS is required",
     ]);
   });
 
@@ -50,23 +54,24 @@ describe("parseEnv", () => {
     expect(problems[0]).toMatch(/^SESSION_ENCRYPTION_KEY must be 32 bytes/);
   });
 
-  it("rejects a malformed URL, phone and log level", () => {
+  it("rejects a malformed URL, email list and log level", () => {
     const problems = problemsFor({
       ...valid,
       SUPABASE_URL: "not a url",
-      OWNER_ALERT_PHONE: "08012345678",
+      OWNER_ALERT_EMAILS: "owner@example.com, not-an-email",
       LOG_LEVEL: "loud",
     });
-    expect(problems.map((p) => p.split(" ")[0])).toEqual([
+    expect(problems.map((p) => p.split(/[ .]/)[0])).toEqual([
       "SUPABASE_URL",
-      "OWNER_ALERT_PHONE",
+      "OWNER_ALERT_EMAILS",
       "LOG_LEVEL",
     ]);
   });
 
-  it("normalises the owner alert phone to E.164", () => {
-    const env = parseEnv({ ...valid, OWNER_ALERT_PHONE: "+234 801 234 5678" });
-    expect(env.OWNER_ALERT_PHONE).toBe("+2348012345678");
+  it("splits the alert email list and defaults the sender", () => {
+    const env = parseEnv({ ...valid, OWNER_ALERT_EMAILS: " a@example.com, b@example.com ," });
+    expect(env.OWNER_ALERT_EMAILS).toEqual(["a@example.com", "b@example.com"]);
+    expect(env.ALERT_FROM_EMAIL).toBe("Group Assistant <onboarding@resend.dev>");
   });
 
   it("never includes secret values in error messages", () => {

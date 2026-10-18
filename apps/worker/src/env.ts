@@ -2,9 +2,8 @@
 // with a readable list of problems if anything is missing or malformed. Error messages name
 // the variable and the rule, never the value, so secrets cannot leak into logs.
 //
-// Variables are required by the task that first uses them: Supabase and the session key now,
-// Meta alerts in task 1.7, OpenRouter and embeddings in Phase 3. Until then they are optional.
-import { phoneE164Schema } from "@soft-agent-support/shared";
+// Variables are required by the task that first uses them (ADR-024): Supabase, the session key
+// and owner alert email now; OpenRouter and embeddings in Phase 3. Until then they are optional.
 import { z } from "zod";
 
 const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace", "silent"] as const;
@@ -24,6 +23,21 @@ const encryptionKeySchema = z
     message: "must be 32 bytes encoded as base64 (generate with: openssl rand -base64 32)",
   });
 
+/** Comma-separated list of email addresses, e.g. "a@x.com, b@y.com". */
+const emailListSchema = z
+  .string({ error: "is required" })
+  .transform((value) =>
+    value
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean),
+  )
+  .pipe(
+    z
+      .array(z.email({ error: "must be comma-separated email addresses" }))
+      .min(1, "must list at least one email address"),
+  );
+
 const envSchema = z.object({
   SUPABASE_URL: required(z.url({ error: "must be a valid URL" })),
   SUPABASE_SERVICE_ROLE_KEY: required(z.string({ error: "is required" }).min(1)),
@@ -35,9 +49,13 @@ const envSchema = z.object({
   EMBEDDINGS_API_KEY: optional(z.string()),
   EMBEDDINGS_MODEL: optional(z.string()).transform((value) => value ?? "text-embedding-3-small"),
 
-  META_CLOUD_API_TOKEN: optional(z.string()),
-  META_PHONE_NUMBER_ID: optional(z.string()),
-  OWNER_ALERT_PHONE: optional(phoneE164Schema),
+  // Owner alerts by email through Resend (ADR-025).
+  RESEND_API_KEY: required(z.string({ error: "is required" }).min(1)),
+  OWNER_ALERT_EMAILS: required(emailListSchema),
+  ALERT_FROM_EMAIL: optional(z.string().min(3)).transform(
+    (value) => value ?? "Group Assistant <onboarding@resend.dev>",
+  ),
+  DASHBOARD_URL: optional(z.url({ error: "must be a valid URL" })),
 
   LOG_LEVEL: optional(
     z.enum(LOG_LEVELS, { error: `must be one of ${LOG_LEVELS.join(", ")}` }),

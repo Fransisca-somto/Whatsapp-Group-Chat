@@ -1,8 +1,9 @@
 // Worker boot (architecture.md §2): validate env, start logging, take the leader lock, then
-// start leader-only modules: session state, the WhatsApp connection and the pairing watcher.
-// The heartbeat (1.6) and owner alerts (1.7) plug into startLeaderSession too.
+// start leader-only modules: session state, the WhatsApp connection, the pairing watcher, the
+// heartbeat and owner alerts.
 import { randomUUID } from "node:crypto";
 
+import { createAlertsRepo } from "./db/alertsRepo.ts";
 import { createAuthStateRepo } from "./db/authStateRepo.ts";
 import { createConnectionRepo } from "./db/connectionRepo.ts";
 import { createLockRepo } from "./db/lockRepo.ts";
@@ -11,6 +12,8 @@ import { createServiceClient } from "./db/supabase.ts";
 import { EnvError, parseEnv } from "./env.ts";
 import { createLeaderLock } from "./lock/leaderLock.ts";
 import { runLeaderLoop, type StartLeaderSession } from "./lock/leaderLoop.ts";
+import { createAlerter } from "./health/alerts.ts";
+import { createResendSender } from "./health/email.ts";
 import { createHeartbeat } from "./health/heartbeat.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { createPairingWatcher } from "./pairing/pairingWatcher.ts";
@@ -65,17 +68,42 @@ function main() {
   const connectionRepo = createConnectionRepo(db);
   const pairingRepo = createPairingRepo(db);
   const createSocket = createBaileysSocketFactory(logger);
+  const alerter = createAlerter({
+    store: createAlertsRepo(db),
+    email: createResendSender({ apiKey: env.RESEND_API_KEY, from: env.ALERT_FROM_EMAIL, logger }),
+    recipients: env.OWNER_ALERT_EMAILS,
+    apiKey: env.RESEND_API_KEY,
+    from: env.ALERT_FROM_EMAIL,
+    logger,
+    ...(env.DASHBOARD_URL ? { dashboardUrl: env.DASHBOARD_URL } : {}),
+  });
 
   const startLeaderSession: StartLeaderSession = async () => {
     await auth.load();
+    // Keep the database's offline check using the same email settings as this worker.
+    await alerter.configureDatabase().catch((error: unknown) => {
+      logger.error({ err: error }, "could not configure database alert email");
+    });
+    // A running leader means the worker is no longer offline.
+    await alerter.resolve(["offline"]).catch((error: unknown) => {
+      logger.error({ err: error }, "could not resolve offline alerts");
+    });
     const connection = createConnectionManager({
       auth,
       store: connectionRepo,
       logger,
       instanceId,
       createSocket,
-      // Sending through the Meta Cloud API arrives in task 1.7.
-      onAlert: (kind, detail) => logger.warn({ kind, detail }, "owner alert"),
+      onAlert: (kind, detail) => {
+        if (kind !== "offline") alerter.notify(kind, detail);
+      },
+    });
+    connection.onOpen(() => {
+      void alerter
+        .resolve(["logged_out", "conflict", "reconnect_failures"])
+        .catch((error: unknown) => {
+          logger.error({ err: error }, "could not resolve alerts");
+        });
     });
     const pairing = createPairingWatcher({ store: pairingRepo, connection, logger });
     const heartbeat = createHeartbeat({ store: connectionRepo, instanceId, logger });
