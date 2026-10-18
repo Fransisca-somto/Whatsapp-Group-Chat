@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 1 — Worker Connection & Pairing (Phase 0 ✅) |
-| **Current task** | 1.7 owner alerts: apply migration 0008, then live test (1.1–1.6 ✅ verified live) |
+| **Current phase** | Phase 2 — Groups & Message Ingestion (Phase 0 ✅, Phase 1 ✅) |
+| **Current task** | Phase 1 complete. Next: plan Phase 2, starting with 2.1 group detection |
 | **Blockers** | None |
-| **Last updated** | 2026-10-18 (1.1–1.6 verified live; number linked) |
+| **Last updated** | 2026-10-18 (Phase 1 complete and verified live; alerts confirmed by email) |
 
 ---
 
@@ -29,14 +29,14 @@ Phases run in order. Do not start a phase until the previous one is ✅, unless 
 - ✅ 0.6 Shared zod schemas and time helpers (`packages/shared`).
 - **Exit criteria:** owner can log in to an empty dashboard; migrations apply cleanly on a fresh database.
 
-### Phase 1 — Worker Connection & Pairing 🟦
+### Phase 1 — Worker Connection & Pairing ✅
 - ✅ 1.1 Worker boot with env validation and structured logging.
 - ✅ 1.2 Leader lock (acquire, renew, release, self-fence on failed renewal).
 - ✅ 1.3 Encrypted Supabase auth-state adapter with debounced writes.
 - ✅ 1.4 Pairing flow via `pairing_requests` (pair + relink).
 - ✅ 1.5 Reconnect policy per `architecture.md` §7.
 - ✅ 1.6 Heartbeat + `<WorkerStatus>` + `/connection` page with `<PairingCodeCard>`.
-- 🟦 1.7 Owner alerts by email via Resend (logged out, conflict, offline >5 min, repeated failures). Built; waiting for migration 0008 and the live test.
+- ✅ 1.7 Owner alerts by email via Resend (logged out, conflict, offline >5 min, repeated failures).
 - **Exit criteria:** owner links the number from the dashboard; worker survives restart without re-pairing; killing the worker shows offline within 60 s and alerts within 5 min; a second worker instance cannot connect.
 
 ### Phase 2 — Groups & Message Ingestion ⬜
@@ -204,6 +204,12 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-18 — Claude (Phase 1 complete)
+- Task(s): 1.7 live test; Phase 1 exit criteria.
+- Verified live: after the owner switched networks, the worker reconnected from the saved session (8,576 rows) with no new code, rode out a WhatsApp disconnect (428) by reconnecting in 9 s, and resolved the open offline incident on startup. The database detected two worker-down incidents 5–6 minutes after the last heartbeat, queued one email each, and both were resolved automatically. **The owner confirmed the "Worker offline" emails arrived.**
+- Phase 1 exit criteria: all met (link from dashboard; restart without re-pairing; offline within 60 s; alert within 5 min, by email per ADR-025; a second instance cannot connect).
+- Next: Phase 2 planning. Consider deploying the worker to Railway or Fly.io early: the owner's network intermittently cannot reach Supabase, which slowed session loading to ~7 minutes locally.
 
 ### 2026-10-18 — Claude (1.7 owner alerts + single-connection fix)
 - Task(s): 1.7; bug fix in 1.2/1.4 code.
