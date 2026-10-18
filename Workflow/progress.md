@@ -10,9 +10,9 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 1 — Worker Connection & Pairing (Phase 0 ✅) |
-| **Current task** | Phase 0 complete. Next: plan Phase 1, starting with 1.1 worker boot |
+| **Current task** | 1.2 Leader lock (1.1 ✅) |
 | **Blockers** | None |
-| **Last updated** | 2026-10-18 (dashboard shell and shared schemas complete; Phase 0 done) |
+| **Last updated** | 2026-10-18 (Phase 1 plan approved; 1.1 worker boot done) |
 
 ---
 
@@ -29,8 +29,8 @@ Phases run in order. Do not start a phase until the previous one is ✅, unless 
 - ✅ 0.6 Shared zod schemas and time helpers (`packages/shared`).
 - **Exit criteria:** owner can log in to an empty dashboard; migrations apply cleanly on a fresh database.
 
-### Phase 1 — Worker Connection & Pairing ⬜
-- ⬜ 1.1 Worker boot with env validation and structured logging.
+### Phase 1 — Worker Connection & Pairing 🟦
+- ✅ 1.1 Worker boot with env validation and structured logging.
 - ⬜ 1.2 Leader lock (acquire, renew, release, self-fence on failed renewal).
 - ⬜ 1.3 Encrypted Supabase auth-state adapter with debounced writes.
 - ⬜ 1.4 Pairing flow via `pairing_requests` (pair + relink).
@@ -159,6 +159,12 @@ Decision: TypeScript adds `noUncheckedIndexedAccess`, `noImplicitOverride` and `
 
 **ADR-022 — Dashboard login and access gate · 2026-10-18 · Accepted `[DEFAULT]`**
 Decision: Dashboard login is Supabase Auth email + password; public sign-ups stay disabled and users are created by hand in Supabase (Authentication → Users, plus a `dashboard_users` row). `proxy.ts` only redirects signed-out visitors; the real gate is `server/currentUser.ts`, which signs out any user without a valid `dashboard_users` role via `/auth/signout?reason=no_access`. Owner-only nav items are hidden for staff, with RLS and server actions as the enforcement. Consequences: no password reset, invitations or magic links yet; adding users from the dashboard is a future task.
+
+**ADR-023 — Agent may run terminal commands · 2026-10-18 · Accepted (supersedes ADR-016)**
+Context: ADR-016 had the owner run every command; this was already set aside in the 0.5/0.6 session. Decision: The owner authorized the agent to run terminal commands (installs, checks, migrations) when starting Phase 1. Consequences: verification output is gathered by the agent and reported in the session log. Destructive or outward-facing commands (pushing to GitHub, deleting data) still need explicit approval.
+
+**ADR-024 — Env variables required by phase · 2026-10-18 · Accepted**
+Context: `architecture.md` §8 required every worker variable on boot, so the worker could not start in Phase 1 without OpenRouter and Meta keys. Decision: a variable becomes required in the task that first uses it (Supabase + session key in 1.1, Meta in 1.7, OpenRouter/embeddings in Phase 3); before that it is optional but format-checked. Consequences: each of those tasks must flip its variables to required in `apps/worker/src/env.ts`.
 
 ---
 

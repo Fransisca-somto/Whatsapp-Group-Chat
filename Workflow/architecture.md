@@ -21,7 +21,7 @@
 | AI (embeddings) | Configurable via env; default `text-embedding-3-small` (1536 dims) `[DEFAULT]` | Needed for semantic search. Changing the model requires re-embedding. |
 | Validation | **zod** | Shared schemas for every boundary (`packages/shared/src/schemas/`). |
 | Time | **date-fns** + **date-fns-tz** (shared package) | Helpers in `packages/shared/src/time.ts`; the timezone is always an argument. |
-| Logging | **pino** (worker), structured JSON | Searchable logs on the host. |
+| Logging | **pino** (worker), structured JSON | Searchable logs on the host. Factory in `apps/worker/src/logger.ts` redacts secret-looking fields. `pnpm dev` pipes output through **pino-pretty** (dev dependency) for local reading; production output stays JSON. |
 | Tests | **Vitest** in every package; tests live next to the code as `*.test.ts` | Unit tests for parsing, permissions, scheduling. The dashboard runs Vitest with jsdom, `@vitejs/plugin-react` and Testing Library (`apps/dashboard/vitest.config.ts`, `vitest.setup.ts`). |
 | Lint / format | **ESLint 9** (type-aware `typescript-eslint` for worker and shared; Next's config for the dashboard) + **Prettier** | Root `eslint.config.mjs` serves worker and shared. Catches un-awaited promises, `any` and default exports. `pnpm format` / `pnpm format:check` at the root. |
 | Package manager | **pnpm** workspaces (pinned `pnpm@12.10.1`, Node 24) | Monorepo. Build scripts are allow-listed in the root `pnpm-workspace.yaml` (`allowBuilds`). |
@@ -45,6 +45,8 @@
 │   └── worker/                 # Node worker (Railway/Fly)
 │       └── src/
 │           ├── index.ts        # Boot: env check, lock, start modules
+│           ├── env.ts          # zod env schema (parseEnv)
+│           ├── logger.ts       # pino factory with redaction
 │           ├── lock/           # Leader lock
 │           ├── whatsapp/       # Baileys socket, auth-state adapter, send queue
 │           ├── ingest/         # Message intake, storage, dedupe, tag detection
@@ -147,7 +149,9 @@ NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY     # server-only, used sparingly in server actions
 ```
-The worker validates all variables with zod on boot and exits with a clear error if any is missing.
+The worker validates all variables with zod on boot (`apps/worker/src/env.ts`) and exits with a clear error listing every missing or invalid variable by name (never its value). Variables become **required in the task that first uses them** (ADR-024): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SESSION_ENCRYPTION_KEY` from task 1.1; the `META_*` and `OWNER_ALERT_PHONE` variables from task 1.7; OpenRouter and embeddings variables from Phase 3. Until then they are optional but still format-checked when set. Empty values count as unset.
+
+Locally the worker reads `apps/worker/.env` through Node's built-in `--env-file-if-exists` flag in its `dev` and `start` scripts (no `dotenv`). On the host, variables come from the platform and no file is needed.
 
 ## 9. Time Rules
 
