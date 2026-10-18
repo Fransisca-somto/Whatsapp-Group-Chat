@@ -14,11 +14,15 @@ import { createLeaderLock } from "./lock/leaderLock.ts";
 import { runLeaderLoop, type StartLeaderSession } from "./lock/leaderLoop.ts";
 import { createAlerter } from "./health/alerts.ts";
 import { createResendSender } from "./health/email.ts";
-import { createHeartbeat } from "./health/heartbeat.ts";
+import { createHeartbeat, type Heartbeat } from "./health/heartbeat.ts";
 import { createLogger, type Logger } from "./logger.ts";
-import { createPairingWatcher } from "./pairing/pairingWatcher.ts";
+import { createPairingWatcher, type PairingWatcher } from "./pairing/pairingWatcher.ts";
 import { createSupabaseAuthState } from "./whatsapp/authState.ts";
-import { createBaileysSocketFactory, createConnectionManager } from "./whatsapp/connection.ts";
+import {
+  createBaileysSocketFactory,
+  createConnectionManager,
+  type ConnectionManager,
+} from "./whatsapp/connection.ts";
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -78,46 +82,70 @@ function main() {
     ...(env.DASHBOARD_URL ? { dashboardUrl: env.DASHBOARD_URL } : {}),
   });
 
-  const startLeaderSession: StartLeaderSession = async () => {
-    await auth.load();
-    // Keep the database's offline check using the same email settings as this worker.
-    await alerter.configureDatabase().catch((error: unknown) => {
-      logger.error({ err: error }, "could not configure database alert email");
-    });
-    // A running leader means the worker is no longer offline.
-    await alerter.resolve(["offline"]).catch((error: unknown) => {
-      logger.error({ err: error }, "could not resolve offline alerts");
-    });
-    const connection = createConnectionManager({
-      auth,
-      store: connectionRepo,
-      logger,
-      instanceId,
-      createSocket,
-      onAlert: (kind, detail) => {
-        if (kind !== "offline") alerter.notify(kind, detail);
-      },
-    });
-    connection.onOpen(() => {
-      void alerter
-        .resolve(["logged_out", "conflict", "reconnect_failures"])
-        .catch((error: unknown) => {
-          logger.error({ err: error }, "could not resolve alerts");
-        });
-    });
-    const pairing = createPairingWatcher({ store: pairingRepo, connection, logger });
-    const heartbeat = createHeartbeat({ store: connectionRepo, instanceId, logger });
-    await connection.start();
-    await pairing.start();
-    await heartbeat.start();
+  const startLeaderSession: StartLeaderSession = async (signal) => {
+    let connection: ConnectionManager | undefined;
+    let pairing: PairingWatcher | undefined;
+    let heartbeat: Heartbeat | undefined;
 
-    return async () => {
+    const stopAll = async () => {
       // Lock lost: never write session state again from this instance.
       if (!lock.isHeld()) auth.discardPending();
-      heartbeat.stop();
-      await connection.stop(); // closes the socket first
-      await pairing.stop();
+      heartbeat?.stop();
+      await connection?.stop(); // closes the socket first
+      await pairing?.stop();
     };
+    const checkpoint = () => {
+      if (signal.aborted) throw new Error("lock lost or shutdown during startup");
+    };
+
+    try {
+      await auth.load();
+      checkpoint();
+      // Keep the database's offline check using the same email settings as this worker.
+      await alerter.configureDatabase().catch((error: unknown) => {
+        logger.error({ err: error }, "could not configure database alert email");
+      });
+      // A running leader means the worker is no longer offline.
+      await alerter.resolve(["offline"]).catch((error: unknown) => {
+        logger.error({ err: error }, "could not resolve offline alerts");
+      });
+      checkpoint();
+
+      connection = createConnectionManager({
+        auth,
+        store: connectionRepo,
+        logger,
+        instanceId,
+        createSocket,
+        canConnect: () => lock.isHeld() && !signal.aborted,
+        onAlert: (kind, detail) => {
+          if (kind !== "offline") alerter.notify(kind, detail);
+        },
+      });
+      connection.onOpen(() => {
+        void alerter
+          .resolve(["logged_out", "conflict", "reconnect_failures"])
+          .catch((error: unknown) => {
+            logger.error({ err: error }, "could not resolve alerts");
+          });
+      });
+      pairing = createPairingWatcher({ store: pairingRepo, connection, logger });
+      heartbeat = createHeartbeat({ store: connectionRepo, instanceId, logger });
+
+      await connection.start();
+      checkpoint();
+      await pairing.start();
+      checkpoint();
+      await heartbeat.start();
+      checkpoint();
+      return stopAll;
+    } catch (error) {
+      // Never leave a half-started session (above all, an open socket) behind.
+      await stopAll().catch((stopError: unknown) => {
+        logger.error({ err: stopError }, "cleanup after failed startup errored");
+      });
+      throw error;
+    }
   };
 
   logger.info({ node: process.version, logLevel: env.LOG_LEVEL }, "worker: boot");

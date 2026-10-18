@@ -110,6 +110,8 @@ A WhatsApp linked device must have exactly one live connection.
 - On graceful shutdown (SIGTERM): close socket, then release the lock.
 - A renewal that returns false (another holder has the lease) fences immediately, without waiting for a second failure. Standby instances retry acquire every 5 s.
 - Release is a guarded update (`holder = null` only where `holder = instance_id`) from `db/lockRepo.ts`; no extra SQL function.
+- **Startup is abortable and self-cleaning** (found in live testing, 2026-10-18): the leader session's start function receives a signal that aborts the moment the lock is lost or shutdown begins. It checks the signal between steps, and if any step fails it stops everything it already started (above all the socket) before giving up. Optional tidy-up steps (e.g. expiring stale pairing requests) log and continue instead of failing startup.
+- **Last line of defence:** `whatsapp/connection.ts` takes `canConnect()` (wired to "lock held and session not aborted") and refuses to open or re-open a socket when it is false.
 - **Deploy rule:** the host must be configured for a single instance with stop-before-start (no overlapping rolling deploys). The lock is the safety net, not the primary control.
 
 ## 6. Session Storage

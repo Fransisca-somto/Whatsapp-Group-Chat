@@ -131,8 +131,13 @@ export function createPairingWatcher(options: PairingWatcherOptions): PairingWat
   return {
     async start() {
       stopped = false;
-      const expired = await store.expireStale();
-      if (expired) log.info({ expired }, "expired pairing requests left by a previous run");
+      // Tidy-up only: a network blip here must not abort the whole leader startup.
+      try {
+        const expired = await store.expireStale();
+        if (expired) log.info({ expired }, "expired pairing requests left by a previous run");
+      } catch (error) {
+        log.warn({ err: error }, "could not expire stale pairing requests; will continue");
+      }
       unsubscribe = store.onInsert(() => check());
       const poll = () => {
         check();

@@ -205,6 +205,14 @@ Newest first. One entry per working session.
 - Notes / issues: <anything the next session must know>
 ```
 
+### 2026-10-18 — Claude (1.7 owner alerts + single-connection fix)
+- Task(s): 1.7; bug fix in 1.2/1.4 code.
+- Done: email alerts via Resend (ADR-025): `health/email.ts`, `health/alerts.ts`, `db/alertsRepo.ts`; migration `0008_offline_alert.sql` (applied by the owner with `pnpm supabase db push`); database types regenerated; docs updated for the switch from Cloud API to email. Test email to `fransiscasomto@gmail.com` accepted by Resend.
+- **Bug found live and fixed:** on a flaky network the worker lost the lock during startup, then a later startup step failed; the startup was abandoned but the already-open WhatsApp socket was never closed and kept reconnecting without the lock, breaking the single-connection rule. Fixed in three layers (abortable startup with cleanup, `canConnect()` guard in the connection manager, non-fatal pairing tidy-up) with regression tests. The orphaned worker was killed as soon as it was spotted.
+- Verified: typecheck, lint, tests (shared 29, worker 78, dashboard 40), format check, dashboard build.
+- Next: restart the worker on a stable connection and run the 1.7 live test (stop it for 6 minutes → one "Worker offline" email).
+- Notes / issues: only `fransiscasomto@gmail.com` can receive alerts until a domain is verified in Resend. Two Resend keys were pasted in chat; the owner should delete the unused one and rotate the active one.
+
 ### 2026-10-18 — Claude (Phase 1 live test)
 - Task(s): live verification of 1.2–1.6 against the real Supabase project and the bot's number.
 - Verified live:

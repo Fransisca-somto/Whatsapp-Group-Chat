@@ -1,11 +1,16 @@
 // Runs the leader-only part of the worker (WhatsApp socket, heartbeat, pairing) only while this
 // instance holds the lock. When the lock is lost, the session is stopped at once and the loop
 // goes back to waiting; when the shutdown signal fires, the session is stopped and the loop ends.
+// Startup itself receives a signal that aborts the moment the lock is lost (or shutdown starts),
+// so a slow startup never keeps going without the lock.
 import type { LeaderLock } from "./leaderLock.ts";
 import type { Logger } from "../logger.ts";
 
-/** Starts leader-only modules; resolves to a function that stops them. */
-export type StartLeaderSession = () => Promise<() => Promise<void>>;
+/**
+ * Starts leader-only modules; resolves to a function that stops them. Must stop anything it
+ * started before rejecting, and must stop starting things once `signal` aborts.
+ */
+export type StartLeaderSession = (signal: AbortSignal) => Promise<() => Promise<void>>;
 
 export async function runLeaderLoop(
   lock: LeaderLock,
@@ -23,10 +28,18 @@ export async function runLeaderLoop(
     await lock.waitForLock(signal);
     if (signal.aborted) break;
 
-    const lost = new Promise<"lost">((resolve) => lock.startRenewal(() => resolve("lost")));
+    const session = new AbortController();
+    const onShutdown = () => session.abort();
+    signal.addEventListener("abort", onShutdown, { once: true });
+    const lost = new Promise<"lost">((resolve) =>
+      lock.startRenewal(() => {
+        session.abort();
+        resolve("lost");
+      }),
+    );
     let stop: (() => Promise<void>) | undefined;
     try {
-      stop = await startSession();
+      stop = await startSession(session.signal);
       log.info("leader session started");
     } catch (error) {
       log.error({ err: error }, "leader session failed to start");
@@ -40,6 +53,7 @@ export async function runLeaderLoop(
         log.error({ err: error }, "leader session failed to stop cleanly");
       }
     }
+    signal.removeEventListener("abort", onShutdown);
     log.info({ outcome }, "leader session ended");
 
     if (outcome === "failed") {

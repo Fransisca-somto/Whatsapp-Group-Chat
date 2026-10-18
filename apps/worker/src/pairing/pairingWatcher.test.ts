@@ -145,4 +145,13 @@ describe("pairing watcher", () => {
     expect(t.expireStale).toHaveBeenCalledOnce();
     await t.watcher.stop();
   });
+
+  it("still starts when tidying up old requests fails (network blip)", async () => {
+    const t = setup([request()]);
+    t.expireStale.mockRejectedValueOnce(new Error("fetch failed"));
+    await expect(t.watcher.start()).resolves.toBeUndefined();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.pair).toHaveBeenCalled(); // requests are still processed
+    await t.watcher.stop();
+  });
 });

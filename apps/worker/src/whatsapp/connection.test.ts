@@ -38,7 +38,7 @@ function fakeSocket() {
   return { sock, emit, update, close };
 }
 
-function setup(registered: boolean) {
+function setup(registered: boolean, canConnect: () => boolean = () => true) {
   const state = { registered };
   const clear = vi.fn(() => Promise.resolve());
   const authFlush = vi.fn(() => Promise.resolve());
@@ -66,6 +66,7 @@ function setup(registered: boolean) {
     logger,
     instanceId: "test",
     onAlert,
+    canConnect,
     random: () => 0.5,
     createSocket: () => {
       const fake = fakeSocket();
@@ -230,6 +231,23 @@ describe("connection manager", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     expect(sockets[0]?.sock.end).toHaveBeenCalled();
     expect(authFlush).toHaveBeenCalled();
+    expect(sockets).toHaveLength(1);
+  });
+
+  it("opens no socket when this instance does not hold the lock", async () => {
+    const { manager, sockets } = setup(true, () => false);
+    await manager.start();
+    expect(sockets).toHaveLength(0);
+    await expect(manager.pair("+2348012345678")).rejects.toThrow();
+  });
+
+  it("does not reconnect once the lock is gone", async () => {
+    let held = true;
+    const { manager, sockets } = setup(true, () => held);
+    await manager.start();
+    held = false;
+    sockets[0]?.close(DisconnectReason.connectionLost);
+    await vi.advanceTimersByTimeAsync(120_000);
     expect(sockets).toHaveLength(1);
   });
 });

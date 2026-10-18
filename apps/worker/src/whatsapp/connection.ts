@@ -34,6 +34,11 @@ export type ConnectionManagerOptions = {
   instanceId: string;
   createSocket: SocketFactory;
   onAlert: (kind: AlertKind, detail: string) => void;
+  /**
+   * Safety net for the single-connection rule: no socket is opened or re-opened unless this
+   * returns true (wired to "this instance holds the leader lock").
+   */
+  canConnect?: () => boolean;
   /** How long to wait for the socket to become ready for a pairing code. */
   pairingReadyTimeoutMs?: number;
   random?: () => number;
@@ -79,6 +84,7 @@ export function createConnectionManager(options: ConnectionManagerOptions): Conn
     onAlert,
     pairingReadyTimeoutMs = 30_000,
     random = Math.random,
+    canConnect = () => true,
   } = options;
   const log = options.logger.child({ module: "connection" });
 
@@ -128,9 +134,13 @@ export function createConnectionManager(options: ConnectionManagerOptions): Conn
   }
 
   async function openSocket() {
+    if (!canConnect()) {
+      log.warn("not opening a WhatsApp socket: this instance does not hold the lock");
+      return;
+    }
     const gen = ++generation;
     const sock = await createSocket(auth.getState());
-    if (gen !== generation || stopped) {
+    if (gen !== generation || stopped || !canConnect()) {
       await sock.end(undefined);
       return;
     }
@@ -241,7 +251,7 @@ export function createConnectionManager(options: ConnectionManagerOptions): Conn
     },
 
     async pair(phoneE164) {
-      if (stopped) throw new Error("connection manager is stopped");
+      if (stopped || !canConnect()) throw new Error("connection manager is stopped");
       if (auth.isRegistered()) throw new AlreadyLinkedError();
       endPairing(new Error("superseded by a new pairing request"));
       await closeSocket();
