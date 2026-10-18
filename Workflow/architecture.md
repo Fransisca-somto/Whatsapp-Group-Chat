@@ -47,7 +47,7 @@
 │           ├── index.ts        # Boot: env check, lock, start modules
 │           ├── env.ts          # zod env schema (parseEnv)
 │           ├── logger.ts       # pino factory with redaction
-│           ├── lock/           # Leader lock
+│           ├── lock/           # Leader lock (leaderLock.ts) + leader-only session loop (leaderLoop.ts)
 │           ├── whatsapp/       # Baileys socket, auth-state adapter, send queue
 │           ├── ingest/         # Message intake, storage, dedupe, tag detection
 │           ├── assistant/      # Intent, answer generation, retrieval
@@ -108,6 +108,8 @@ A WhatsApp linked device must have exactly one live connection.
 - Holder renews every **10 seconds**. If renewal fails twice in a row, the worker **closes the socket immediately** and returns to trying to acquire.
 - The Baileys socket is opened **only after** the lock is held.
 - On graceful shutdown (SIGTERM): close socket, then release the lock.
+- A renewal that returns false (another holder has the lease) fences immediately, without waiting for a second failure. Standby instances retry acquire every 5 s.
+- Release is a guarded update (`holder = null` only where `holder = instance_id`) from `db/lockRepo.ts`; no extra SQL function.
 - **Deploy rule:** the host must be configured for a single instance with stop-before-start (no overlapping rolling deploys). The lock is the safety net, not the primary control.
 
 ## 6. Session Storage

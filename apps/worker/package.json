@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@soft-agent-support/shared": "workspace:*",
+    "@supabase/supabase-js": "^2.117.3",
     "pino": "^10.4.0",
     "zod": "^4.6.5"
   }

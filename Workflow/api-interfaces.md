@@ -203,8 +203,17 @@ Offline detection when the worker itself is dead: a Supabase scheduled function 
 ## 8. Worker Internal Module Contracts
 
 ```ts
-// lock/
-acquireLock(): Promise<boolean>; startRenewal(onLost: () => void): void; releaseLock(): Promise<void>;
+// lock/  (leaderLock.ts, leaderLoop.ts)
+createLeaderLock({ store, instanceId, logger }) → {
+  acquire(): Promise<boolean>; waitForLock(signal?): Promise<void>;   // retries every 5 s
+  startRenewal(onLost: (reason) => void): void;                      // renews every 10 s
+  release(): Promise<void>; isHeld(): boolean;
+}
+// Renewal returning false (lease taken) fences at once; 2 consecutive renewal errors fence.
+runLeaderLoop(lock, startSession, signal, logger): Promise<void>;
+// startSession() starts leader-only modules and returns their stop(); it runs only while the
+// lock is held and is stopped immediately on fence or shutdown. Shutdown order: stop session,
+// then release the lock.
 
 // ingest/
 handleInbound(msg: InboundGroupMessage): Promise<void>;     // dedupe → store → gates → route
