@@ -214,7 +214,7 @@ Newest first. One entry per working session.
 - Fixed: removed `shouldSyncHistoryMessage: () => false` from the socket config. Baileys warned it blocks the LID → phone mappings that Phase 2 authorization needs. The default (skip only FULL history sync) is now used; reconnect verified with no warning.
 - Not yet done: 1.7 owner alerts (waiting on Meta template details and the offline-alert method).
 - Notes / issues:
-  - The owner's network intermittently could not reach Supabase (`fetch failed`, supabase.com unreachable while other sites worked). The worker fenced and recovered correctly. The login page reports such network errors as "incorrect password"; a clearer message was proposed and awaits approval.
+  - The owner's network intermittently could not reach Supabase (`fetch failed`, supabase.com unreachable while other sites worked). The worker fenced and recovered correctly. The login page used to report such network errors as "incorrect password"; fixed (owner-approved) in `server/loginError.ts`: only a credentials rejection blames the password, network failures say the server can't be reached, 429 explains rate limiting.
   - On Windows, stopping a background shell can leave the worker running. Stop it with `taskkill /F /T /PID <npx pid>`.
   - The session is ~8,500 rows; loading takes ~5 s on this connection. Fine for now; revisit if startup gets slow.
   - The bot's number is linked. Do not run a second copy of the worker anywhere else (e.g. on Railway) while testing locally; the lock protects WhatsApp, but only one place should be the intended host.
