@@ -10,7 +10,7 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 1 — Worker Connection & Pairing (Phase 0 ✅) |
-| **Current task** | 1.5 Reconnect policy, then 1.4 pairing (1.1–1.3 ✅; live tests pending service-role key) |
+| **Current task** | 1.6 Heartbeat + dashboard connection page (1.1–1.5 ✅ unit-tested; live tests pending service-role key) |
 | **Blockers** | None |
 | **Last updated** | 2026-10-18 (Phase 1 plan approved; 1.1 worker boot done) |
 
@@ -33,8 +33,8 @@ Phases run in order. Do not start a phase until the previous one is ✅, unless 
 - ✅ 1.1 Worker boot with env validation and structured logging.
 - ✅ 1.2 Leader lock (acquire, renew, release, self-fence on failed renewal).
 - ✅ 1.3 Encrypted Supabase auth-state adapter with debounced writes.
-- ⬜ 1.4 Pairing flow via `pairing_requests` (pair + relink).
-- ⬜ 1.5 Reconnect policy per `architecture.md` §7.
+- ✅ 1.4 Pairing flow via `pairing_requests` (pair + relink).
+- ✅ 1.5 Reconnect policy per `architecture.md` §7.
 - ⬜ 1.6 Heartbeat + `<WorkerStatus>` + `/connection` page with `<PairingCodeCard>`.
 - ⬜ 1.7 Owner alerts via Meta Cloud API (logged out, offline >5 min, repeated failures).
 - **Exit criteria:** owner links the number from the dashboard; worker survives restart without re-pairing; killing the worker shows offline within 60 s and alerts within 5 min; a second worker instance cannot connect.

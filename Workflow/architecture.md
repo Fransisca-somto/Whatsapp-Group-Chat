@@ -127,10 +127,13 @@ A WhatsApp linked device must have exactly one live connection.
 
 | Disconnect reason | Action |
 |---|---|
-| Logged out / bad session | Clear session, status `logged_out`, alert owner, wait for relink. No auto-reconnect. |
+| Logged out / bad session / forbidden (403, likely banned) / multi-device mismatch | Clear session, status `logged_out`, alert owner, wait for relink. No auto-reconnect. |
 | Connection replaced (another device took over) | Status `conflict`, alert owner, do not reconnect automatically. |
-| Restart required / connection lost / timed out | Reconnect with exponential backoff: 2s, 4s, 8s … max 60s, with jitter. |
+| Restart required | Reconnect immediately; not counted as a failure (normal right after pairing). |
+| Connection lost / timed out / closed / service unavailable | Reconnect with exponential backoff: 2s, 4s, 8s … max 60s, with ±20% jitter (never above 60s). |
 | Anything else | Log, back off, reconnect. After 10 failures in a row, alert owner. |
+
+Implemented as the pure function `decideReconnect` in `whatsapp/reconnectPolicy.ts`; `whatsapp/connection.ts` applies it. The failure count resets when a connection opens, and the alert fires once, on the 10th consecutive failure. The policy applies only to a linked session: a pairing socket that closes is never auto-reconnected. A relink's own logout never raises the logged-out alert.
 
 ## 8. Environment Variables
 

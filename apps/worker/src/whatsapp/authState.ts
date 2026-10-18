@@ -190,7 +190,11 @@ export function createSupabaseAuthState(options: AuthStateOptions): SupabaseAuth
       timer = undefined;
       pending = new Map();
       await writing;
-      await store.deleteAll();
+      if (canWrite()) {
+        await store.deleteAll();
+      } else {
+        log.warn("auth state clear skipped in storage: lock not held");
+      }
       cache.clear();
       state = makeState(initAuthCreds());
       log.info("auth state cleared");

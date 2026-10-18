@@ -157,6 +157,17 @@ describe("Supabase auth state", () => {
     expect(rows.has("session-a")).toBe(true);
   });
 
+  it("clear() leaves storage alone when the lock is not held", async () => {
+    let held = true;
+    const { auth, rows } = setup(() => held);
+    await auth.load();
+    await auth.saveCreds();
+    held = false;
+    await auth.clear();
+    expect(rows.has("creds")).toBe(true);
+    expect(auth.isRegistered()).toBe(false);
+  });
+
   it("clear() wipes storage and resets to fresh creds", async () => {
     const { auth, rows } = setup();
     await auth.load();

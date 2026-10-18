@@ -26,11 +26,19 @@
 2. **Worker** subscribes to `pairing_requests` inserts (Realtime) and also polls every 10 s as a fallback.
 3. On `relink`: worker logs out the current socket, deletes `wa_auth_state`, sets `wa_connection.status = 'pairing'`.
 4. Worker opens a fresh socket and calls Baileys `requestPairingCode(phone)` (digits only).
-5. Worker updates the row: `status = 'code_issued', pairing_code, code_expires_at = now() + 60s` `[DEFAULT: adjust to actual WhatsApp expiry]`.
+5. Worker updates the row: `status = 'code_issued', pairing_code, code_expires_at = now() + 120s` `[DEFAULT: adjust to actual WhatsApp expiry]`. The code is requested only after the socket's first `qr` event (the socket must be connected; the QR itself is never shown).
 6. **Dashboard** watches the row (Realtime) and shows `<PairingCodeCard>`.
 7. On successful connection: row → `paired`; `wa_connection` → `connected` with `linked_phone_e164`, `bot_jid`, `bot_lid`.
 8. On expiry without success: row → `expired`. Dashboard shows **Retry**, which inserts a new request.
 9. Dashboard may set `cancelled` on an open request; worker abandons it.
+10. Worker rules (implemented in `pairing/pairingWatcher.ts` and `whatsapp/connection.ts`):
+    - Requests are processed one at a time, oldest first; the worker checks for cancellation every 3 s while a code is shown.
+    - `pair` while a number is already linked → `failed` with "A number is already linked. Use Relink to change it."
+    - If WhatsApp closes the pairing connection before the code is confirmed → `expired` with an error note.
+    - Each pairing attempt starts from fresh creds; an abandoned attempt clears its half-written session.
+    - On startup the leader marks any `code_issued` rows left by a previous run as `expired`.
+    - An unlinked worker holds **no** socket unless a pairing request is in progress (`wa_connection.status = 'not_linked'`).
+    - After the phone confirms, WhatsApp closes with `restartRequired`; the worker reconnects at once and marks the request `paired` when the connection opens.
 
 ### 2.2 Health
 - Worker upserts `wa_connection.last_heartbeat_at` every **15 s** and on every status change.

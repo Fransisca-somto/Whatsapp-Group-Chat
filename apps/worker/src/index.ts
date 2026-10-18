@@ -1,14 +1,20 @@
 // Worker boot (architecture.md §2): validate env, start logging, take the leader lock, then
-// start leader-only modules. Later tasks plug the session (1.3), WhatsApp socket and pairing
-// (1.4) and heartbeat (1.6) into startLeaderSession.
+// start leader-only modules: session state, the WhatsApp connection and the pairing watcher.
+// The heartbeat (1.6) and owner alerts (1.7) plug into startLeaderSession too.
 import { randomUUID } from "node:crypto";
 
+import { createAuthStateRepo } from "./db/authStateRepo.ts";
+import { createConnectionRepo } from "./db/connectionRepo.ts";
 import { createLockRepo } from "./db/lockRepo.ts";
+import { createPairingRepo } from "./db/pairingRepo.ts";
 import { createServiceClient } from "./db/supabase.ts";
 import { EnvError, parseEnv } from "./env.ts";
 import { createLeaderLock } from "./lock/leaderLock.ts";
 import { runLeaderLoop, type StartLeaderSession } from "./lock/leaderLoop.ts";
 import { createLogger, type Logger } from "./logger.ts";
+import { createPairingWatcher } from "./pairing/pairingWatcher.ts";
+import { createSupabaseAuthState } from "./whatsapp/authState.ts";
+import { createBaileysSocketFactory, createConnectionManager } from "./whatsapp/connection.ts";
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -49,10 +55,37 @@ function main() {
   const lock = createLeaderLock({ store: createLockRepo(db), instanceId, logger });
   const stopping = new AbortController();
 
-  // Leader-only modules start here in later tasks; for now the session only logs.
-  const startLeaderSession: StartLeaderSession = () => {
-    logger.info("worker: leader (no modules yet)");
-    return Promise.resolve(() => Promise.resolve());
+  const auth = createSupabaseAuthState({
+    store: createAuthStateRepo(db),
+    encryptionKey: Buffer.from(env.SESSION_ENCRYPTION_KEY, "base64"),
+    logger,
+    canWrite: () => lock.isHeld(),
+  });
+  const connectionRepo = createConnectionRepo(db);
+  const pairingRepo = createPairingRepo(db);
+  const createSocket = createBaileysSocketFactory(logger);
+
+  const startLeaderSession: StartLeaderSession = async () => {
+    await auth.load();
+    const connection = createConnectionManager({
+      auth,
+      store: connectionRepo,
+      logger,
+      instanceId,
+      createSocket,
+      // Sending through the Meta Cloud API arrives in task 1.7.
+      onAlert: (kind, detail) => logger.warn({ kind, detail }, "owner alert"),
+    });
+    const pairing = createPairingWatcher({ store: pairingRepo, connection, logger });
+    await connection.start();
+    await pairing.start();
+
+    return async () => {
+      // Lock lost: never write session state again from this instance.
+      if (!lock.isHeld()) auth.discardPending();
+      await connection.stop(); // closes the socket first
+      await pairing.stop();
+    };
   };
 
   logger.info({ node: process.version, logLevel: env.LOG_LEVEL }, "worker: boot");
