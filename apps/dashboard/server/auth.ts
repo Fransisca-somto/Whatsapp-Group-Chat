@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 import { decideAccess } from "./accessDecision";
+import { LOGIN_MESSAGES, loginErrorMessage } from "./loginError";
 
 export type LoginResult = { error: string };
 
@@ -17,8 +18,16 @@ export async function login(input: unknown): Promise<LoginResult> {
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithPassword(parsed.data);
-  if (error || !data.user) {
-    return { error: "Email or password is incorrect." };
+  if (error) {
+    console.error("login: sign-in failed", {
+      name: error.name,
+      status: error.status,
+      code: error.code,
+    });
+    return { error: loginErrorMessage(error) };
+  }
+  if (!data.user) {
+    return { error: LOGIN_MESSAGES.unknown };
   }
 
   const { data: row, error: roleError } = await supabase

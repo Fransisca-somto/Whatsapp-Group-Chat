@@ -14,7 +14,7 @@
 | 4 | Worker ↔ WhatsApp | Baileys socket events and send queue |
 | 5 | Worker → OpenRouter | Chat completions (intent + answer) |
 | 6 | Worker → Embeddings API | Embedding generation |
-| 7 | Worker → Meta Cloud API | Owner alerts only |
+| 7 | Worker / database → Resend | Owner alert email |
 | 8 | Worker internal | Module contracts |
 
 ---
@@ -26,14 +26,22 @@
 2. **Worker** subscribes to `pairing_requests` inserts (Realtime) and also polls every 10 s as a fallback.
 3. On `relink`: worker logs out the current socket, deletes `wa_auth_state`, sets `wa_connection.status = 'pairing'`.
 4. Worker opens a fresh socket and calls Baileys `requestPairingCode(phone)` (digits only).
-5. Worker updates the row: `status = 'code_issued', pairing_code, code_expires_at = now() + 60s` `[DEFAULT: adjust to actual WhatsApp expiry]`.
+5. Worker updates the row: `status = 'code_issued', pairing_code, code_expires_at = now() + 120s` `[DEFAULT: adjust to actual WhatsApp expiry]`. The code is requested only after the socket's first `qr` event (the socket must be connected; the QR itself is never shown).
 6. **Dashboard** watches the row (Realtime) and shows `<PairingCodeCard>`.
 7. On successful connection: row → `paired`; `wa_connection` → `connected` with `linked_phone_e164`, `bot_jid`, `bot_lid`.
 8. On expiry without success: row → `expired`. Dashboard shows **Retry**, which inserts a new request.
 9. Dashboard may set `cancelled` on an open request; worker abandons it.
+10. Worker rules (implemented in `pairing/pairingWatcher.ts` and `whatsapp/connection.ts`):
+    - Requests are processed one at a time, oldest first; the worker checks for cancellation every 3 s while a code is shown.
+    - `pair` while a number is already linked → `failed` with "A number is already linked. Use Relink to change it."
+    - If WhatsApp closes the pairing connection before the code is confirmed → `expired` with an error note.
+    - Each pairing attempt starts from fresh creds; an abandoned attempt clears its half-written session.
+    - On startup the leader marks any `code_issued` rows left by a previous run as `expired`.
+    - An unlinked worker holds **no** socket unless a pairing request is in progress (`wa_connection.status = 'not_linked'`).
+    - After the phone confirms, WhatsApp closes with `restartRequired`; the worker reconnects at once and marks the request `paired` when the connection opens.
 
 ### 2.2 Health
-- Worker upserts `wa_connection.last_heartbeat_at` every **15 s** and on every status change.
+- Worker upserts `wa_connection.last_heartbeat_at` every **15 s** and on every status change. Only the lock holder writes it (`health/heartbeat.ts`), and it also stamps `instance_id`. An unlinked worker still beats, so the dashboard shows "Not linked" rather than "Offline".
 - Dashboard subscribes to `wa_connection` and renders `<WorkerStatus>`: `offline` if the heartbeat is older than 60 s, otherwise `status`.
 
 ### 2.3 Group, schedule and knowledge changes
@@ -44,7 +52,7 @@
 
 ## 3. Dashboard Server Actions
 
-All live in `apps/dashboard/server/actions/`. Each one: (1) gets the session, (2) checks role, (3) validates input with zod, (4) writes, (5) writes a `bot_actions` row for audit where listed, (6) returns `{ ok: true, data } | { ok: false, error: string }`.
+All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audit.ts` (`auditDashboardAction`); if the audit write fails after the main write succeeded, the action still returns `ok` and logs the error. Each one: (1) gets the session, (2) checks role, (3) validates input with zod, (4) writes, (5) writes a `bot_actions` row for audit where listed, (6) returns `{ ok: true, data } | { ok: false, error: string }`.
 
 | Action | Role | Input schema | Audit |
 |---|---|---|---|
@@ -58,7 +66,8 @@ All live in `apps/dashboard/server/actions/`. Each one: (1) gets the session, (2
 | `updateScheduledPost` | owner, staff | `{ id, ...ScheduledPostInput }` (only if status = scheduled) | ✅ |
 | `cancelScheduledPost` | owner, staff | `{ id }` | ✅ |
 | `resendScheduledPost` | owner, staff | `{ id }` (only if `delivery_uncertain` or `failed`) | ✅ |
-| `requestPairing` | owner | `{ kind, phoneE164 }` | ✅ |
+| `requestPairing` | owner | `PairingRequestInput { kind, phoneE164 }` (shared `pairingRequestInputSchema`). An already-open request returns "A pairing request is already open. Cancel it first." | ✅ `pairing_requested` / `relink_requested` |
+| `cancelPairing` | owner | `CancelPairingInput { requestId }`; sets `cancelled` only while `requested` / `code_issued` | — |
 | `updateCompanySettings` | owner | `{ companyName, timezone, ownerAlertPhone, botDisplayName }` | ✅ |
 
 `dueAtLocal` is a local date-time string interpreted in the company timezone and converted to UTC on the server with `packages/shared/time.ts`.
@@ -188,23 +197,41 @@ Messages from anyone other than the requester never affect the request.
 
 ---
 
-## 7. Worker → Meta Cloud API (owner alerts only)
+## 7. Owner alert email (Resend)
 
-- `health/alerts.ts` → `sendOwnerAlert(kind, message)`.
-- Uses the existing Cloud API integration: `POST https://graph.facebook.com/<version>/<META_PHONE_NUMBER_ID>/messages` with a pre-approved template (required outside the 24-hour window). Template name configured in env.
-- Before sending, insert into `alerts` with a unique `incident_key` (e.g. `offline:2026-10-03T14`); if it already exists, do not send.
-- When the condition clears, set `resolved_at`.
-- **Never** read or write any customer-chat data.
+ADR-025. Email replaces the earlier Cloud API WhatsApp alert; the Cloud API is not used by this project.
 
-Offline detection when the worker itself is dead: a Supabase scheduled function (pg_cron) checks `wa_connection.last_heartbeat_at` every minute and, if stale > 5 min, calls the alert via an Edge Function. `[DEFAULT]`
+**Sending:** `POST https://api.resend.com/emails` with `Authorization: Bearer $RESEND_API_KEY`, body `{ from, to: string[], subject, text }`. Worker: `health/email.ts` (10 s timeout, one retry on network error / 429 / 5xx, no retry on other 4xx).
+
+**Incidents:** one email per incident. An incident is an unresolved `alerts` row of that kind; `incident_key` = `<kind>:<ISO time>`.
+
+| Kind | Raised by | When | Resolved when |
+|---|---|---|---|
+| `logged_out` | worker (`health/alerts.ts`) | logout / bad session / forbidden / multi-device mismatch | the bot connects again |
+| `conflict` | worker | connection replaced by another device | the bot connects again |
+| `reconnect_failures` | worker | 10th consecutive failed reconnect | the bot connects again |
+| `offline` | database (`check_worker_offline()`, every minute) | `last_heartbeat_at` older than 5 min (never if the worker has never run) | heartbeat fresh again, or a leader session starts |
+
+**Email text:** subject `[Group Assistant] <what happened>`; body says what happened, when (company timezone), the detail, what to do, and a dashboard link when `DASHBOARD_URL` is set.
+
+**Database settings:** on every leader start the worker calls `configure_alert_email(api_key, recipients, from)`, which stores them in Supabase Vault (`alert_resend_api_key`, `alert_recipients`, `alert_from`). The database job reads them from `vault.decrypted_secrets`; nothing secret is in migrations. `pg_net` sends asynchronously, so `sent_at` on an `offline` alert means "queued"; Resend's dashboard shows delivery.
 
 ---
 
 ## 8. Worker Internal Module Contracts
 
 ```ts
-// lock/
-acquireLock(): Promise<boolean>; startRenewal(onLost: () => void): void; releaseLock(): Promise<void>;
+// lock/  (leaderLock.ts, leaderLoop.ts)
+createLeaderLock({ store, instanceId, logger }) → {
+  acquire(): Promise<boolean>; waitForLock(signal?): Promise<void>;   // retries every 5 s
+  startRenewal(onLost: (reason) => void): void;                      // renews every 10 s
+  release(): Promise<void>; isHeld(): boolean;
+}
+// Renewal returning false (lease taken) fences at once; 2 consecutive renewal errors fence.
+runLeaderLoop(lock, startSession, signal, logger): Promise<void>;
+// startSession() starts leader-only modules and returns their stop(); it runs only while the
+// lock is held and is stopped immediately on fence or shutdown. Shutdown order: stop session,
+// then release the lock.
 
 // ingest/
 handleInbound(msg: InboundGroupMessage): Promise<void>;     // dedupe → store → gates → route

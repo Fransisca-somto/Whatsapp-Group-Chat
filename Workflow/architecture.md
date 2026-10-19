@@ -12,8 +12,8 @@
 | UI | **Tailwind CSS 4 + shadcn/ui** (Base UI primitives), lucide-react icons, **sonner** toasts, Inter and JetBrains Mono via `next/font` | See `ui-context.md`. Tailwind 4 has no `tailwind.config.ts`; tokens are mapped in `app/globals.css` with `@theme inline`. |
 | Dashboard forms | **react-hook-form** + `@hookform/resolvers` (zod) | Schemas come from `packages/shared`. |
 | Worker | **Node.js LTS + TypeScript**, deployed on **Railway or Fly.io** (single instance) | Baileys needs an always-on process holding a live socket. Serverless is not allowed for the worker. |
-| WhatsApp (groups) | **Baileys** (`@whiskeysockets/baileys`), version pinned exactly | Unofficial WhatsApp Web client. |
-| WhatsApp (alerts only) | Existing **Meta Cloud API** integration | Used only to alert the owner. |
+| WhatsApp (groups) | **Baileys** (`baileys`, formerly `@whiskeysockets/baileys`), pinned exactly at `7.0.0-rc14` | Unofficial WhatsApp Web client. |
+| Owner alerts | **Resend** email HTTP API (free plan), called with `fetch` (no SDK) | ADR-025. The worker sends logged-out / conflict / reconnect-failure alerts; the database (`pg_cron` + `pg_net`) sends the worker-offline alert. The free test sender only delivers to the Resend account's own address until a domain is verified. |
 | Database | **Supabase Postgres** with **pgvector** and full-text search | Relational data, hybrid search and session storage in one place. |
 | Auth (dashboard) | **Supabase Auth** (email + password, sign-ups disabled) via `@supabase/ssr` | Browser and server clients in `apps/dashboard/lib/supabase/`. `apps/dashboard/proxy.ts` (Next.js 16's replacement for `middleware.ts`) refreshes the session and redirects signed-out visitors to `/login`; it is an optimistic check only. `server/currentUser.ts` re-checks the `dashboard_users` role; a user with no row is sent to `/auth/signout?reason=no_access`. |
 | Realtime | **Supabase Realtime** | Dashboard sees worker status and pairing codes live; worker receives requests. |
@@ -21,7 +21,7 @@
 | AI (embeddings) | Configurable via env; default `text-embedding-3-small` (1536 dims) `[DEFAULT]` | Needed for semantic search. Changing the model requires re-embedding. |
 | Validation | **zod** | Shared schemas for every boundary (`packages/shared/src/schemas/`). |
 | Time | **date-fns** + **date-fns-tz** (shared package) | Helpers in `packages/shared/src/time.ts`; the timezone is always an argument. |
-| Logging | **pino** (worker), structured JSON | Searchable logs on the host. |
+| Logging | **pino** (worker), structured JSON | Searchable logs on the host. Factory in `apps/worker/src/logger.ts` redacts secret-looking fields. `pnpm dev` pipes output through **pino-pretty** (dev dependency) for local reading; production output stays JSON. |
 | Tests | **Vitest** in every package; tests live next to the code as `*.test.ts` | Unit tests for parsing, permissions, scheduling. The dashboard runs Vitest with jsdom, `@vitejs/plugin-react` and Testing Library (`apps/dashboard/vitest.config.ts`, `vitest.setup.ts`). |
 | Lint / format | **ESLint 9** (type-aware `typescript-eslint` for worker and shared; Next's config for the dashboard) + **Prettier** | Root `eslint.config.mjs` serves worker and shared. Catches un-awaited promises, `any` and default exports. `pnpm format` / `pnpm format:check` at the root. |
 | Package manager | **pnpm** workspaces (pinned `pnpm@12.10.1`, Node 24) | Monorepo. Build scripts are allow-listed in the root `pnpm-workspace.yaml` (`allowBuilds`). |
@@ -45,7 +45,9 @@
 │   └── worker/                 # Node worker (Railway/Fly)
 │       └── src/
 │           ├── index.ts        # Boot: env check, lock, start modules
-│           ├── lock/           # Leader lock
+│           ├── env.ts          # zod env schema (parseEnv)
+│           ├── logger.ts       # pino factory with redaction
+│           ├── lock/           # Leader lock (leaderLock.ts) + leader-only session loop (leaderLoop.ts)
 │           ├── whatsapp/       # Baileys socket, auth-state adapter, send queue
 │           ├── ingest/         # Message intake, storage, dedupe, tag detection
 │           ├── assistant/      # Intent, answer generation, retrieval
@@ -70,12 +72,12 @@
  Dashboard (Vercel) ──► Supabase ◄── Worker (Railway/Fly) ──► WhatsApp (Baileys)
         │                  ▲                │
         │                  │                ├──► OpenRouter (chat + embeddings)
-        └── no direct ─────┘                └──► Meta Cloud API (owner alerts only)
+        └── no direct ─────┘                └──► Resend (owner alert email)
             connection to worker
 ```
 
 1. **The dashboard never talks to the worker directly.** All coordination goes through Supabase tables and Realtime (`api-interfaces.md` §2). The worker exposes no public HTTP endpoints except an optional private `/healthz` for the host.
-2. **The dashboard reads through RLS** using the logged-in user's session, and writes through **server actions** that validate with zod and re-check the user's role.
+2. **The dashboard reads through RLS** using the logged-in user's session, and writes through **server actions** that validate with zod and re-check the user's role. The service-role key is used in the dashboard **only** by `lib/supabase/admin.ts`, and that client is imported **only** by `server/audit.ts` to append `bot_actions` rows (dashboard roles cannot write the audit log, ADR-019). `SUPABASE_SERVICE_ROLE_KEY` must be set in `apps/dashboard/.env.local` and on Vercel.
 3. **The worker uses the Supabase service-role key** and is the only component that writes messages, session state, heartbeats and sent-status.
 4. **Inside the worker, modules talk through functions, not globals.** Only `whatsapp/` touches the Baileys socket. Only `ai/` calls OpenRouter. Only `db/` calls Supabase.
 5. **`packages/shared` has no runtime dependencies on either app.**
@@ -106,6 +108,10 @@ A WhatsApp linked device must have exactly one live connection.
 - Holder renews every **10 seconds**. If renewal fails twice in a row, the worker **closes the socket immediately** and returns to trying to acquire.
 - The Baileys socket is opened **only after** the lock is held.
 - On graceful shutdown (SIGTERM): close socket, then release the lock.
+- A renewal that returns false (another holder has the lease) fences immediately, without waiting for a second failure. Standby instances retry acquire every 5 s.
+- Release is a guarded update (`holder = null` only where `holder = instance_id`) from `db/lockRepo.ts`; no extra SQL function.
+- **Startup is abortable and self-cleaning** (found in live testing, 2026-10-18): the leader session's start function receives a signal that aborts the moment the lock is lost or shutdown begins. It checks the signal between steps, and if any step fails it stops everything it already started (above all the socket) before giving up. Optional tidy-up steps (e.g. expiring stale pairing requests) log and continue instead of failing startup.
+- **Last line of defence:** `whatsapp/connection.ts` takes `canConnect()` (wired to "lock held and session not aborted") and refuses to open or re-open a socket when it is false.
 - **Deploy rule:** the host must be configured for a single instance with stop-before-start (no overlapping rolling deploys). The lock is the safety net, not the primary control.
 
 ## 6. Session Storage
@@ -114,15 +120,22 @@ A WhatsApp linked device must have exactly one live connection.
 - Values are **encrypted at rest with AES-256-GCM** using `SESSION_ENCRYPTION_KEY`.
 - In-memory cache is the read path; writes are **debounced (500 ms) and batched** into one upsert. `creds` are written immediately.
 - On logout (`DisconnectReason.loggedOut`) or relink: delete all rows in `wa_auth_state`, set connection status `logged_out`.
+- Implementation: `whatsapp/authState.ts` (adapter), `whatsapp/crypto.ts` (AES-256-GCM, the row key is bound as associated data so a value moved to another row fails to decrypt), `db/authStateRepo.ts` (reads paged by 1000, upserts chunked by 500, deletes by 100).
+- Writes happen only while the instance holds the leader lock. On fence, pending writes are **discarded**, never flushed, so a fenced worker cannot overwrite the new holder's session.
+- `SESSION_ENCRYPTION_KEY` must never change for a linked session: a new key makes the stored session unreadable and forces a relink. Keep a backup of it outside the host.
+- Baileys is pinned exactly (`baileys@7.0.0-rc14`; the package was renamed from `@whiskeysockets/baileys` in v7). Its install scripts (an engine check) and protobufjs' postinstall are disabled in `allowBuilds`; neither is needed at runtime.
 
 ## 7. Reconnect Policy
 
 | Disconnect reason | Action |
 |---|---|
-| Logged out / bad session | Clear session, status `logged_out`, alert owner, wait for relink. No auto-reconnect. |
+| Logged out / bad session / forbidden (403, likely banned) / multi-device mismatch | Clear session, status `logged_out`, alert owner, wait for relink. No auto-reconnect. |
 | Connection replaced (another device took over) | Status `conflict`, alert owner, do not reconnect automatically. |
-| Restart required / connection lost / timed out | Reconnect with exponential backoff: 2s, 4s, 8s … max 60s, with jitter. |
+| Restart required | Reconnect immediately; not counted as a failure (normal right after pairing). |
+| Connection lost / timed out / closed / service unavailable | Reconnect with exponential backoff: 2s, 4s, 8s … max 60s, with ±20% jitter (never above 60s). |
 | Anything else | Log, back off, reconnect. After 10 failures in a row, alert owner. |
+
+Implemented as the pure function `decideReconnect` in `whatsapp/reconnectPolicy.ts`; `whatsapp/connection.ts` applies it. The failure count resets when a connection opens, and the alert fires once, on the 10th consecutive failure. The policy applies only to a linked session: a pairing socket that closes is never auto-reconnected. A relink's own logout never raises the logged-out alert.
 
 ## 8. Environment Variables
 
@@ -136,9 +149,10 @@ OPENROUTER_CHAT_MODEL         # default: anthropic/claude-haiku (exact slug pinn
 OPENROUTER_FALLBACK_MODEL
 EMBEDDINGS_API_KEY
 EMBEDDINGS_MODEL              # default: text-embedding-3-small
-META_CLOUD_API_TOKEN          # for owner alerts
-META_PHONE_NUMBER_ID
-OWNER_ALERT_PHONE             # E.164
+RESEND_API_KEY                # owner alert email (required from 1.7)
+OWNER_ALERT_EMAILS            # comma-separated recipients (required from 1.7)
+ALERT_FROM_EMAIL              # default: Group Assistant <onboarding@resend.dev>
+DASHBOARD_URL                 # optional; adds a dashboard link to alert emails
 LOG_LEVEL
 ```
 **Dashboard**
@@ -147,7 +161,9 @@ NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY     # server-only, used sparingly in server actions
 ```
-The worker validates all variables with zod on boot and exits with a clear error if any is missing.
+The worker validates all variables with zod on boot (`apps/worker/src/env.ts`) and exits with a clear error listing every missing or invalid variable by name (never its value). Variables become **required in the task that first uses them** (ADR-024): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SESSION_ENCRYPTION_KEY` from task 1.1; `RESEND_API_KEY` and `OWNER_ALERT_EMAILS` from task 1.7; OpenRouter and embeddings variables from Phase 3. Until then they are optional but still format-checked when set. Empty values count as unset.
+
+Locally the worker reads `apps/worker/.env` through Node's built-in `--env-file-if-exists` flag in its `dev` and `start` scripts (no `dotenv`). On the host, variables come from the platform and no file is needed.
 
 ## 9. Time Rules
 

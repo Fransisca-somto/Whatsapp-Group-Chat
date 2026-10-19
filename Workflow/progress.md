@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 1 — Worker Connection & Pairing (Phase 0 ✅) |
-| **Current task** | Phase 0 complete. Next: plan Phase 1, starting with 1.1 worker boot |
+| **Current phase** | Phase 2 — Groups & Message Ingestion (Phase 0 ✅, Phase 1 ✅) |
+| **Current task** | Phase 1 complete. Next: plan Phase 2, starting with 2.1 group detection |
 | **Blockers** | None |
-| **Last updated** | 2026-10-18 (dashboard shell and shared schemas complete; Phase 0 done) |
+| **Last updated** | 2026-10-18 (Phase 1 complete and verified live; alerts confirmed by email) |
 
 ---
 
@@ -29,14 +29,14 @@ Phases run in order. Do not start a phase until the previous one is ✅, unless 
 - ✅ 0.6 Shared zod schemas and time helpers (`packages/shared`).
 - **Exit criteria:** owner can log in to an empty dashboard; migrations apply cleanly on a fresh database.
 
-### Phase 1 — Worker Connection & Pairing ⬜
-- ⬜ 1.1 Worker boot with env validation and structured logging.
-- ⬜ 1.2 Leader lock (acquire, renew, release, self-fence on failed renewal).
-- ⬜ 1.3 Encrypted Supabase auth-state adapter with debounced writes.
-- ⬜ 1.4 Pairing flow via `pairing_requests` (pair + relink).
-- ⬜ 1.5 Reconnect policy per `architecture.md` §7.
-- ⬜ 1.6 Heartbeat + `<WorkerStatus>` + `/connection` page with `<PairingCodeCard>`.
-- ⬜ 1.7 Owner alerts via Meta Cloud API (logged out, offline >5 min, repeated failures).
+### Phase 1 — Worker Connection & Pairing ✅
+- ✅ 1.1 Worker boot with env validation and structured logging.
+- ✅ 1.2 Leader lock (acquire, renew, release, self-fence on failed renewal).
+- ✅ 1.3 Encrypted Supabase auth-state adapter with debounced writes.
+- ✅ 1.4 Pairing flow via `pairing_requests` (pair + relink).
+- ✅ 1.5 Reconnect policy per `architecture.md` §7.
+- ✅ 1.6 Heartbeat + `<WorkerStatus>` + `/connection` page with `<PairingCodeCard>`.
+- ✅ 1.7 Owner alerts by email via Resend (logged out, conflict, offline >5 min, repeated failures).
 - **Exit criteria:** owner links the number from the dashboard; worker survives restart without re-pairing; killing the worker shows offline within 60 s and alerts within 5 min; a second worker instance cannot connect.
 
 ### Phase 2 — Groups & Message Ingestion ⬜
@@ -160,6 +160,15 @@ Decision: TypeScript adds `noUncheckedIndexedAccess`, `noImplicitOverride` and `
 **ADR-022 — Dashboard login and access gate · 2026-10-18 · Accepted `[DEFAULT]`**
 Decision: Dashboard login is Supabase Auth email + password; public sign-ups stay disabled and users are created by hand in Supabase (Authentication → Users, plus a `dashboard_users` row). `proxy.ts` only redirects signed-out visitors; the real gate is `server/currentUser.ts`, which signs out any user without a valid `dashboard_users` role via `/auth/signout?reason=no_access`. Owner-only nav items are hidden for staff, with RLS and server actions as the enforcement. Consequences: no password reset, invitations or magic links yet; adding users from the dashboard is a future task.
 
+**ADR-023 — Agent may run terminal commands · 2026-10-18 · Accepted (supersedes ADR-016)**
+Context: ADR-016 had the owner run every command; this was already set aside in the 0.5/0.6 session. Decision: The owner authorized the agent to run terminal commands (installs, checks, migrations) when starting Phase 1. Consequences: verification output is gathered by the agent and reported in the session log. Destructive or outward-facing commands (pushing to GitHub, deleting data) still need explicit approval.
+
+**ADR-024 — Env variables required by phase · 2026-10-18 · Accepted**
+Context: `architecture.md` §8 required every worker variable on boot, so the worker could not start in Phase 1 without OpenRouter and Meta keys. Decision: a variable becomes required in the task that first uses it (Supabase + session key in 1.1, Meta in 1.7, OpenRouter/embeddings in Phase 3); before that it is optional but format-checked. Consequences: each of those tasks must flip its variables to required in `apps/worker/src/env.ts`.
+
+**ADR-025 — Owner alerts by email through Resend · 2026-10-18 · Accepted (owner decision; supersedes the Cloud API alert in overview §4.7)**
+Context: The company had no approved Meta template, and WhatsApp alerts would depend on Meta approval and paid template messages. Decision: Alerts go by email via Resend's free plan, called with plain `fetch`. The worker sends logged-out, conflict and reconnect-failure alerts; the database (`pg_cron` + `pg_net`, migration 0008) sends the worker-offline alert, reading the Resend key and recipients from Supabase Vault, where the worker writes them on startup. Consequences: the Meta Cloud API is no longer used by this project at all (CLAUDE.md rule 5 updated). Resend's free test sender only reaches the Resend account's own address (currently `fransiscasomto@gmail.com`); more recipients need a verified domain. The `META_*` and `OWNER_ALERT_PHONE` variables are removed; `company_settings.owner_alert_phone` is unused for now.
+
 ---
 
 ## Open Defaults to Confirm
@@ -195,6 +204,51 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-18 — Claude (Phase 1 complete)
+- Task(s): 1.7 live test; Phase 1 exit criteria.
+- Verified live: after the owner switched networks, the worker reconnected from the saved session (8,576 rows) with no new code, rode out a WhatsApp disconnect (428) by reconnecting in 9 s, and resolved the open offline incident on startup. The database detected two worker-down incidents 5–6 minutes after the last heartbeat, queued one email each, and both were resolved automatically. **The owner confirmed the "Worker offline" emails arrived.**
+- Phase 1 exit criteria: all met (link from dashboard; restart without re-pairing; offline within 60 s; alert within 5 min, by email per ADR-025; a second instance cannot connect).
+- Next: Phase 2 planning. Consider deploying the worker to Railway or Fly.io early: the owner's network intermittently cannot reach Supabase, which slowed session loading to ~7 minutes locally.
+
+### 2026-10-18 — Claude (1.7 owner alerts + single-connection fix)
+- Task(s): 1.7; bug fix in 1.2/1.4 code.
+- Done: email alerts via Resend (ADR-025): `health/email.ts`, `health/alerts.ts`, `db/alertsRepo.ts`; migration `0008_offline_alert.sql` (applied by the owner with `pnpm supabase db push`); database types regenerated; docs updated for the switch from Cloud API to email. Test email to `fransiscasomto@gmail.com` accepted by Resend.
+- **Bug found live and fixed:** on a flaky network the worker lost the lock during startup, then a later startup step failed; the startup was abandoned but the already-open WhatsApp socket was never closed and kept reconnecting without the lock, breaking the single-connection rule. Fixed in three layers (abortable startup with cleanup, `canConnect()` guard in the connection manager, non-fatal pairing tidy-up) with regression tests. The orphaned worker was killed as soon as it was spotted.
+- Verified: typecheck, lint, tests (shared 29, worker 78, dashboard 40), format check, dashboard build.
+- Next: restart the worker on a stable connection and run the 1.7 live test (stop it for 6 minutes → one "Worker offline" email).
+- Notes / issues: only `fransiscasomto@gmail.com` can receive alerts until a domain is verified in Resend. Two Resend keys were pasted in chat; the owner should delete the unused one and rotate the active one.
+
+### 2026-10-18 — Claude (Phase 1 live test)
+- Task(s): live verification of 1.2–1.6 against the real Supabase project and the bot's number.
+- Verified live:
+  - Worker boots, takes the lock, idles as `not_linked` and heartbeats every 15 s.
+  - A second worker stays on standby while the first holds the lock (tested three times, including by accident when a killed shell left the first worker running).
+  - After a hard kill, the standby takes over once the 30 s lease expires, never earlier.
+  - Pairing from `/connection`: code issued ~3 s after the request; after the phone confirmed, WhatsApp closed with 515, the worker reconnected at once and the request became `paired`. Dashboard showed Connected with the linked number.
+  - Restart without re-pairing: the new worker loaded the saved session (8,528 encrypted rows, `registered: true`) and connected with no code.
+  - Offline: 78 s after a hard kill the heartbeat was stale, so the dashboard rule shows Offline (row status stays `connected`, as expected for a dead worker).
+- Fixed: removed `shouldSyncHistoryMessage: () => false` from the socket config. Baileys warned it blocks the LID → phone mappings that Phase 2 authorization needs. The default (skip only FULL history sync) is now used; reconnect verified with no warning.
+- Not yet done: 1.7 owner alerts (waiting on Meta template details and the offline-alert method).
+- Notes / issues:
+  - The owner's network intermittently could not reach Supabase (`fetch failed`, supabase.com unreachable while other sites worked). The worker fenced and recovered correctly. The login page used to report such network errors as "incorrect password"; fixed (owner-approved) in `server/loginError.ts`: only a credentials rejection blames the password, network failures say the server can't be reached, 429 explains rate limiting.
+  - On Windows, stopping a background shell can leave the worker running. Stop it with `taskkill /F /T /PID <npx pid>`.
+  - The session is ~8,500 rows; loading takes ~5 s on this connection. Fine for now; revisit if startup gets slow.
+  - The bot's number is linked. Do not run a second copy of the worker anywhere else (e.g. on Railway) while testing locally; the lock protects WhatsApp, but only one place should be the intended host.
+
+### 2026-10-18 — Claude (Phase 1: worker connection and pairing, 1.1–1.6)
+- Task(s): 1.1–1.6 on branch `phase-1` (one commit per task; not pushed).
+- Done: worker env validation and pino logging; leader lock with renewal, fencing and a leader-only session loop; encrypted Supabase auth state (AES-256-GCM, debounced batched writes, writes only while holding the lock); connection manager on Baileys `7.0.0-rc14`; pairing watcher (Realtime + 10 s poll); reconnect policy; heartbeat; dashboard `<WorkerStatus>`, `/connection` page, `<PairingCodeCard>`, `<ConfirmDialog>`, `requestPairing` / `cancelPairing` actions with audit.
+- Verified: `pnpm typecheck`, `pnpm lint`, `pnpm test` (shared 29, worker 63, dashboard 36), `pnpm format:check`, `pnpm --filter dashboard build` all pass. Manual: worker exits with a list of missing env vars; boots and shuts down cleanly with valid env.
+- **Not yet verified live:** nothing has run against Supabase or WhatsApp yet. Needs `SUPABASE_SERVICE_ROLE_KEY` in `apps/worker/.env` (created this session, gitignored, with a generated `SESSION_ENCRYPTION_KEY`) and in `apps/dashboard/.env.local`.
+- Changed docs: `architecture.md`, `api-interfaces.md`, `ui-context.md`, `progress.md`.
+- Decisions: ADR-023 (agent may run commands, supersedes ADR-016), ADR-024 (env vars required by phase).
+- Next: live test of the exit criteria (link, restart without re-pair, second instance on standby, offline within 60 s), then 1.7 owner alerts once the Meta template details are known.
+- Notes / issues:
+  - Back up `SESSION_ENCRYPTION_KEY` from `apps/worker/.env`; changing it later forces a relink.
+  - Pairing code lifetime is set to 120 s `[DEFAULT]`; adjust after the live test.
+  - `shadcn add` now pulls in a separate `cn` npm package; it was removed and the generated files point at `@/lib/utils`.
+  - On Windows, `process.kill(pid, "SIGINT")` terminates without running handlers; Ctrl+C and Linux SIGTERM work normally.
 
 ### 2026-10-18 — Claude (dashboard shell and shared schemas)
 - Task(s): 0.5, 0.6 (step 04, `Workflow/Phases/04-Dashboard-Shell.md`)

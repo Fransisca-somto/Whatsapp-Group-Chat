@@ -84,7 +84,7 @@ The company's existing **customer chats on the official Meta Cloud API are compl
 4. Because it is a new number, the dashboard shows a **re-admission checklist** listing every active group that must add the new number.
 
 ### 4.7 Alerts
-If the worker is logged out, or offline for more than 5 minutes, the owner receives a WhatsApp alert through the **existing official Cloud API integration**, at most once per incident. `[DEFAULT]`
+If the bot is logged out, another device takes over its session, reconnecting fails 10 times in a row, or the worker is offline for more than 5 minutes, the owner receives an **email** (sent through Resend), at most once per incident. Changed from WhatsApp alerts via the Cloud API by the owner on 2026-10-18 (ADR-025).
 
 ## 5. Permissions Matrix
 
