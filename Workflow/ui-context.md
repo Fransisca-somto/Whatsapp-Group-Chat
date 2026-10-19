@@ -83,7 +83,7 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 ## 5. Component Conventions
 
 - Use **shadcn/ui primitives** from `components/ui/` for all basics (Button, Input, Dialog, Table, Tabs, Switch, Select, Badge, Toast). Do not build parallel versions.
-- Installed primitives: badge, button, dialog, dropdown-menu, input, label, sheet, skeleton. Generated files must import `cn` from `@/lib/utils` (newer shadcn templates import a separate `cn` npm package; we do not add it) and may only use button sizes our `button.tsx` defines.
+- Installed primitives: badge, button, dialog, dropdown-menu, input, label, select, sheet, skeleton, switch, table. `select`, `switch` and `table` were hand-written in shadcn's Base UI style (2026-10-19) because the shadcn registry was unreachable; `<Select>` takes `items` (value → label) so the trigger shows the label. Generated files must import `cn` from `@/lib/utils` (newer shadcn templates import a separate `cn` npm package; we do not add it) and may only use button sizes our `button.tsx` defines.
 - Shared app components live in `components/` and must be listed here (✅ = built):
 
 | Component | Purpose |
@@ -97,6 +97,7 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 | `<PairingCodeCard />` ✅ | Large monospace code shown as `ABCD-1234`, expiry countdown, linking steps, Cancel (open request) and Retry (expired / failed / cancelled). |
 | `<EmptyState />` ✅ | Icon, one-line explanation, primary action. |
 | `<PageHeader />` ✅ | Page title, optional description, actions on the right. |
+| Group pages ✅ | `/groups` (table on desktop, cards on mobile; pending pinned first with `ApproveGroupButton`), `/groups/[id]` (`GroupStatusActions` with archive confirmation, `GroupSettingsForm`, `GroupMessages` newest-first with "Load older" and a "Tagged" marker). Labels in `lib/groups.ts`. |
 | `<AppShell />` ✅ | Top bar (logo, page title, worker-status slot, `<UserMenu />`) plus `<Sidebar />`; the sidebar becomes a drawer on mobile. Items come from `components/navItems.ts`; owner-only items are hidden for staff. |
 
 - **Forms:** react-hook-form + zod schemas imported from `packages/shared`. Inline field errors under the input. Submit buttons show a spinner and are disabled while pending.

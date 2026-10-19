@@ -10,7 +10,7 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 2 — Groups & Message Ingestion (Phase 0 ✅, Phase 1 ✅) |
-| **Current task** | 2.2 `/groups` dashboard pages (2.1, 2.3–2.5 worker side ✅ unit-tested; live test pending) |
+| **Current task** | Phase 2 live test with a real WhatsApp group (2.1–2.5 built and unit-tested) |
 | **Blockers** | None |
 | **Last updated** | 2026-10-18 (Phase 1 complete and verified live; alerts confirmed by email) |
 
@@ -41,7 +41,7 @@ Phases run in order. Do not start a phase until the previous one is ✅, unless 
 
 ### Phase 2 — Groups & Message Ingestion 🟦
 - ✅ 2.1 Detect groups the bot is in; create as `pending` (sync on connect + live events).
-- ⬜ 2.2 `/groups` page with approve / pause / archive; group settings page.
+- ✅ 2.2 `/groups` page with approve / pause / resume / archive; group settings page with recent messages.
 - ✅ 2.3 Store messages from active and paused groups only (owner decision); dedupe by WhatsApp message ID.
 - ✅ 2.4 Tag detection (@mention or reply to bot); ignore private chats.
 - ✅ 2.5 Handle bot removed from group → status `removed`; its scheduled posts are not claimed while it is not `active` (`claim_due_posts`).
@@ -204,6 +204,14 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-19 — Claude (Phase 2 build)
+- Task(s): 2.1–2.5 on branch `phase-2`.
+- Owner decisions: paused groups keep storing messages; the group status is checked before storing (pending/removed/archived store nothing); a re-added removed group returns to pending, archived stays archived; the group page's scheduled-posts section waits for Phase 5.
+- Done: worker ingestion (`ingest/`: group directory with 30 s cache, sync on connect, Baileys event wiring, inbound pipeline, tag detection; `whatsapp/normalizeMessage.ts`, `whatsapp/jids.ts`; `db/groupsRepo.ts`, `db/messagesRepo.ts`, `db/auditRepo.ts`); shared `groups.ts` (status rules) and schemas (`inboundGroupMessageSchema`, group action inputs); dashboard `/groups` and `/groups/[id]` with `changeGroupStatus`, `updateGroupSettings`, `loadOlderGroupMessages`.
+- Also: `.gitattributes` (`eol=lf`) after Windows checkouts of the merged branch came out as CRLF and failed the format check; hand-written `select`, `switch`, `table` primitives (shadcn registry unreachable).
+- Verified: typecheck, lint, format check, tests (shared 36, worker 122, dashboard 52), dashboard build. No migration needed.
+- Next: live test with a real group (see the Phase 2 plan's checklist), then merge.
 
 ### 2026-10-18 — Claude (Phase 1 complete)
 - Task(s): 1.7 live test; Phase 1 exit criteria.

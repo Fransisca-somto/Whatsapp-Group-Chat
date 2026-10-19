@@ -1,5 +1,6 @@
 export * from "./authorizedUser.ts";
 export * from "./enums.ts";
+export * from "./groupActions.ts";
 export * from "./groupSettings.ts";
 export * from "./inboundMessage.ts";
 export * from "./intent.ts";

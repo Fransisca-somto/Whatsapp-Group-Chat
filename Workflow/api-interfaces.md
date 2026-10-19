@@ -56,9 +56,9 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 
 | Action | Role | Input schema | Audit |
 |---|---|---|---|
-| `approveGroup` | owner, staff | `{ groupId }` | ✅ |
-| `updateGroupSettings` | owner, staff | `GroupSettingsInput { groupId, reminderPermission, aiEnabled, dailyReplyCap, retentionDays }` | ✅ |
-| `setGroupStatus` | owner, staff | `{ groupId, status: 'active'\|'paused'\|'archived' }` | ✅ |
+| `changeGroupStatus` | owner, staff | `ChangeGroupStatusInput { groupId, action: 'approve'\|'pause'\|'resume'\|'archive' }`. Allowed only along `groupActionTarget()` (shared `groups.ts`); the update is conditional on the status read (`eq('status', current)`), so concurrent clicks cannot skip a step. Approve also sets `approved_by` / `approved_at`. Replaces the earlier `approveGroup` + `setGroupStatus`. | ✅ `group_approved` / `group_paused` / `group_resumed` / `group_archived` (detail `from`, `to`) |
+| `updateGroupSettings` | owner, staff | `UpdateGroupSettingsInput { groupId, reminderPermission, aiEnabled, dailyReplyCap, retentionDays }` | ✅ `group_settings_updated` |
+| `loadOlderGroupMessages` | owner, staff | `LoadGroupMessagesInput { groupId, before }` (ISO timestamp); read-only, 50 per page through RLS | — |
 | `upsertKnowledgeEntry` | owner, staff | `{ id?, title, content, isActive }` | — |
 | `deleteKnowledgeEntry` | owner, staff | `{ id }` | — |
 | `upsertAuthorizedUser` | owner, staff | `{ id?, displayName, phoneE164, allGroups, groupIds[], isActive }` | ✅ |

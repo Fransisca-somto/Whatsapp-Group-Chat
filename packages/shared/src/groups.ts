@@ -2,14 +2,13 @@
 // api-interfaces.md §3). The dashboard may only move a group along these transitions; the
 // worker sets `pending` (detected / re-added) and `removed` (bot left) itself.
 import type { GroupStatus } from "./schemas/enums.ts";
+import type { GroupAction } from "./schemas/groupActions.ts";
 
 /** Statuses whose messages are stored. Paused groups keep history; the bot just stays quiet. */
 export const STORING_GROUP_STATUSES: readonly GroupStatus[] = ["active", "paused"];
 
 /** Statuses in which the bot replies and posts. */
 export const REPLYING_GROUP_STATUSES: readonly GroupStatus[] = ["active"];
-
-export type GroupAction = "approve" | "pause" | "resume" | "archive";
 
 const TRANSITIONS: Record<GroupAction, { from: readonly GroupStatus[]; to: GroupStatus }> = {
   approve: { from: ["pending"], to: "active" },
