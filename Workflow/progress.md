@@ -10,7 +10,7 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 2 — Groups & Message Ingestion (Phase 0 ✅, Phase 1 ✅) |
-| **Current task** | Phase 1 complete. Next: plan Phase 2, starting with 2.1 group detection |
+| **Current task** | 2.2 `/groups` dashboard pages (2.1, 2.3–2.5 worker side ✅ unit-tested; live test pending) |
 | **Blockers** | None |
 | **Last updated** | 2026-10-18 (Phase 1 complete and verified live; alerts confirmed by email) |
 
@@ -39,12 +39,12 @@ Phases run in order. Do not start a phase until the previous one is ✅, unless 
 - ✅ 1.7 Owner alerts by email via Resend (logged out, conflict, offline >5 min, repeated failures).
 - **Exit criteria:** owner links the number from the dashboard; worker survives restart without re-pairing; killing the worker shows offline within 60 s and alerts within 5 min; a second worker instance cannot connect.
 
-### Phase 2 — Groups & Message Ingestion ⬜
-- ⬜ 2.1 Detect groups the bot is in; create as `pending`.
+### Phase 2 — Groups & Message Ingestion 🟦
+- ✅ 2.1 Detect groups the bot is in; create as `pending` (sync on connect + live events).
 - ⬜ 2.2 `/groups` page with approve / pause / archive; group settings page.
-- ⬜ 2.3 Store messages from active groups only; dedupe by WhatsApp message ID.
-- ⬜ 2.4 Tag detection (@mention or reply to bot); ignore private chats.
-- ⬜ 2.5 Handle bot removed from group → status `removed`, pause its scheduled posts.
+- ✅ 2.3 Store messages from active and paused groups only (owner decision); dedupe by WhatsApp message ID.
+- ✅ 2.4 Tag detection (@mention or reply to bot); ignore private chats.
+- ✅ 2.5 Handle bot removed from group → status `removed`; its scheduled posts are not claimed while it is not `active` (`claim_due_posts`).
 - **Exit criteria:** messages from approved groups appear in the group page; pending groups store nothing.
 
 ### Phase 3 — Tagged Q&A ⬜

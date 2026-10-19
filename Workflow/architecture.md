@@ -86,9 +86,9 @@
 
 Every tagged message passes through these steps in order. No step may be skipped or reordered.
 
-1. **Dedupe** — insert message by WhatsApp message ID; if it already exists, stop.
-2. **Group gate** — group must be `active`; otherwise stop silently.
-3. **Tag gate** — must be an @mention of the bot or a reply to a bot message.
+1. **Group gate** — look up the group (30 s cache). Only `active` and `paused` groups continue; anything else stops silently and **stores nothing** (owner decision, 2026-10-19). A message from an unknown group registers it as `pending` and is not stored.
+2. **Dedupe** — insert the message by WhatsApp message ID; if it already exists, stop.
+3. **Tag gate** — must be an @mention of the bot or a reply to a bot message. Paused groups stop here (stored, never answered) once Phase 3 adds replies.
 4. **Rate gate** — per-user (5 tags/minute) and per-group daily reply cap (default 200). Over the limit: one short notice, then silence. `[DEFAULT]`
 5. **Pending-confirmation check** — if this sender has a pending reminder request in this group, route to the confirmation handler first.
 6. **Intent classification** (LLM, structured JSON) → `question | create_reminder | dashboard_only_action | smalltalk | refuse`.

@@ -81,9 +81,12 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 |---|---|---|
 | `connection.update` | `whatsapp/connection.ts` | Status changes, QR/pairing state, reconnect policy (`architecture.md` §7). |
 | `creds.update` | `whatsapp/authState.ts` | Persist creds immediately. |
-| `messages.upsert` | `ingest/onMessage.ts` | For `type = 'notify'` only. Group messages → ingest pipeline. Non-group → ignore. |
-| `groups.upsert` / `groups.update` | `ingest/onGroups.ts` | Create `pending` group or update name. |
-| `group-participants.update` | `ingest/onGroups.ts` | If the bot is removed → group `removed`, audit. |
+| `messages.upsert` | `ingest/ingest.ts` → `ingest/handleInbound.ts` | For `type = 'notify'` only. Group messages → ingest pipeline. Non-group → ignore. |
+| `groups.upsert` / `groups.update` | `ingest/ingest.ts` → `ingest/groupDirectory.ts` | Create `pending` group, re-add a `removed` one as `pending`, or update the name. |
+| `group-participants.update` | `ingest/ingest.ts` | Only when the bot is a participant (matched by JID, LID or phone): `remove` → group `removed`; `add` → fetch metadata, register as `pending`. |
+| connection `open` | `ingest/groupSync.ts` | `groupFetchAllParticipating()` and reconcile: new → `pending`, renamed → update, removed live group → `removed`, re-added → `pending`. Catches changes made while the worker was offline. |
+
+**Worker audit actions** (`actor_type = 'system'`): `group_detected`, `group_renamed` (detail `previousName`), `group_readded`, `group_removed` (detail `reason`, `previousStatus`).
 
 ### 4.2 Normalized inbound message (`InboundGroupMessage`)
 ```ts
@@ -102,7 +105,7 @@ type InboundGroupMessage = {
   isFromBot: boolean;
 };
 ```
-**Tag detection:** `mentionedJids` includes the bot's JID or LID, **or** `quotedIsFromBot` is true.
+**Tag detection:** `mentionedJids` includes the bot's JID or LID, **or** the quoted message's sender (`quotedParticipantJid`) is the bot. Device suffixes are ignored. The bot's own messages are never tags. Implemented: `whatsapp/normalizeMessage.ts` (raw → normalized, skips reactions, deletes, edits, stubs and private chats), `whatsapp/jids.ts` (phone resolution: sender JID → `participantAlt` → Baileys LID→PN mapping → null), `ingest/detectTag.ts`. The schema is `inboundGroupMessageSchema` in `packages/shared` (it carries `quotedParticipantJid` instead of `quotedIsFromBot`).
 
 ### 4.3 Outbound (`whatsapp/sendQueue.ts`)
 ```ts

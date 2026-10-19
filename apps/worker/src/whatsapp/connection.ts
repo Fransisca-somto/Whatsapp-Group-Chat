@@ -24,7 +24,17 @@ import type { SupabaseAuthState } from "./authState.ts";
 import { decideReconnect } from "./reconnectPolicy.ts";
 
 /** The parts of a Baileys socket this module uses (a fake implements them in tests). */
-export type SocketLike = Pick<WASocket, "ev" | "requestPairingCode" | "logout" | "end" | "user">;
+export type SocketLike = Pick<
+  WASocket,
+  | "ev"
+  | "requestPairingCode"
+  | "logout"
+  | "end"
+  | "user"
+  | "groupMetadata"
+  | "groupFetchAllParticipating"
+  | "signalRepository"
+>;
 export type SocketFactory = (auth: AuthenticationState) => Promise<SocketLike>;
 
 export type ConnectionManagerOptions = {
@@ -39,6 +49,8 @@ export type ConnectionManagerOptions = {
    * returns true (wired to "this instance holds the leader lock").
    */
   canConnect?: () => boolean;
+  /** Called for every new socket, before it connects, so feature modules can attach handlers. */
+  onSocket?: (sock: SocketLike) => void;
   /** How long to wait for the socket to become ready for a pairing code. */
   pairingReadyTimeoutMs?: number;
   random?: () => number;
@@ -54,7 +66,7 @@ export type ConnectionManager = {
   relink(): Promise<void>;
   isRegistered(): boolean;
   /** Fires each time the socket reaches `open` (also after a pairing succeeds). */
-  onOpen(listener: () => void): () => void;
+  onOpen(listener: (sock: SocketLike) => void): () => void;
   /** Fires when an unfinished pairing socket closes on its own. */
   onPairingClosed(listener: (reason: string) => void): () => void;
   stop(): Promise<void>;
@@ -95,7 +107,7 @@ export function createConnectionManager(options: ConnectionManagerOptions): Conn
   let reconnectTimer: NodeJS.Timeout | undefined;
   let pairing: PairingAttempt | undefined;
   let stopped = false;
-  const openListeners = new Set<() => void>();
+  const openListeners = new Set<(sock: SocketLike) => void>();
   const pairingClosedListeners = new Set<(reason: string) => void>();
 
   async function setStatus(status: WaConnectionStatus, extra: ConnectionPatch = {}) {
@@ -145,6 +157,7 @@ export function createConnectionManager(options: ConnectionManagerOptions): Conn
       return;
     }
     socket = sock;
+    options.onSocket?.(sock);
     sock.ev.on("creds.update", () => {
       void auth.saveCreds().catch((error: unknown) => {
         log.error({ err: error }, "could not save creds");
@@ -188,7 +201,7 @@ export function createConnectionManager(options: ConnectionManagerOptions): Conn
         last_error: null,
       });
       log.info("connected to WhatsApp");
-      for (const listener of openListeners) listener();
+      for (const listener of openListeners) listener(sock);
       return;
     }
 

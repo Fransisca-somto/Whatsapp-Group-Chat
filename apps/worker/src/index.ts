@@ -1,12 +1,15 @@
 // Worker boot (architecture.md §2): validate env, start logging, take the leader lock, then
 // start leader-only modules: session state, the WhatsApp connection, the pairing watcher, the
-// heartbeat and owner alerts.
+// heartbeat, owner alerts and group/message ingestion.
 import { randomUUID } from "node:crypto";
 
 import { createAlertsRepo } from "./db/alertsRepo.ts";
+import { createAuditRepo } from "./db/auditRepo.ts";
 import { createAuthStateRepo } from "./db/authStateRepo.ts";
 import { createConnectionRepo } from "./db/connectionRepo.ts";
+import { createGroupsRepo } from "./db/groupsRepo.ts";
 import { createLockRepo } from "./db/lockRepo.ts";
+import { createMessagesRepo } from "./db/messagesRepo.ts";
 import { createPairingRepo } from "./db/pairingRepo.ts";
 import { createServiceClient } from "./db/supabase.ts";
 import { EnvError, parseEnv } from "./env.ts";
@@ -15,6 +18,7 @@ import { runLeaderLoop, type StartLeaderSession } from "./lock/leaderLoop.ts";
 import { createAlerter } from "./health/alerts.ts";
 import { createResendSender } from "./health/email.ts";
 import { createHeartbeat, type Heartbeat } from "./health/heartbeat.ts";
+import { createIngest } from "./ingest/ingest.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { createPairingWatcher, type PairingWatcher } from "./pairing/pairingWatcher.ts";
 import { createSupabaseAuthState } from "./whatsapp/authState.ts";
@@ -72,6 +76,18 @@ function main() {
   const connectionRepo = createConnectionRepo(db);
   const pairingRepo = createPairingRepo(db);
   const createSocket = createBaileysSocketFactory(logger);
+  const ingest = createIngest({
+    groups: createGroupsRepo(db),
+    messages: createMessagesRepo(db),
+    audit: createAuditRepo(db),
+    logger,
+    // Phase 3 replaces this with the assistant pipeline (intent → answer / reminder).
+    onTagged: (message, group) =>
+      logger.info(
+        { groupId: group.id, waMessageId: message.waMessageId },
+        "tagged message stored (answers arrive in Phase 3)",
+      ),
+  });
   const alerter = createAlerter({
     store: createAlertsRepo(db),
     email: createResendSender({ apiKey: env.RESEND_API_KEY, from: env.ALERT_FROM_EMAIL, logger }),
@@ -118,11 +134,15 @@ function main() {
         instanceId,
         createSocket,
         canConnect: () => lock.isHeld() && !signal.aborted,
+        onSocket: (sock) => ingest.attach(sock),
         onAlert: (kind, detail) => {
           if (kind !== "offline") alerter.notify(kind, detail);
         },
       });
-      connection.onOpen(() => {
+      connection.onOpen((sock) => {
+        void ingest.syncOnOpen(sock).catch((error: unknown) => {
+          logger.error({ err: error }, "group sync failed");
+        });
         void alerter
           .resolve(["logged_out", "conflict", "reconnect_failures"])
           .catch((error: unknown) => {

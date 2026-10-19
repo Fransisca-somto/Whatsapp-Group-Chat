@@ -8,5 +8,6 @@ export type {
   TablesInsert,
   TablesUpdate,
 } from "./database.types.ts";
+export * from "./groups.ts";
 export * from "./schemas/index.ts";
 export * from "./time.ts";
