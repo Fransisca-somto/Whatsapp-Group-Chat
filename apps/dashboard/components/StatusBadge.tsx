@@ -25,6 +25,7 @@ const STATUSES = {
   cancelled: { tone: "neutral", label: "Cancelled" },
   skipped_late: { tone: "neutral", label: "Skipped" },
   archived: { tone: "neutral", label: "Archived" },
+  unknown: { tone: "neutral", label: "Unknown" },
 } as const satisfies Record<string, { tone: StatusTone; label: string }>;
 
 export type Status = keyof typeof STATUSES;

@@ -12,7 +12,7 @@
 | **Current phase** | Phase 3 — Tagged Q&A (Phase 0–2 ✅) |
 | **Current task** | 3.0–3.6 built on branch `phase-3` (plan: `Workflow/Phases/05-Tagged-QA.md`). Next: owner restarts the worker and runs the live WhatsApp test in "Softwirelex group" |
 | **Blockers** | None |
-| **Last updated** | 2026-10-22 (3.2–3.6: the bot answers when tagged; audit page) |
+| **Last updated** | 2026-10-23 (layout, chat frame, worker status fix) |
 
 ---
 
@@ -215,6 +215,13 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-23 — Claude (fixed layout, chat frame, worker status fix)
+- Owner request, plan approved: sticky desktop sidebar (`AppShell.tsx`); the Messages chat fills the screen below the tabs (measured, re-measured on resize and when the tab becomes visible), so only the messages scroll; chat header with the group name; a disabled message box ("Replies are sent by the bot in WhatsApp"); no focus outline on tab panels (Base UI focused the panel after a tab click).
+- **Bug fixed:** the top bar showed "Offline · Last seen never" while the worker was connected (heartbeat 7 s old in the database). `useWorkerConnection` read the row once and never retried after a failed read. It now re-reads every 30 s, and while the latest read has failed the badge shows **Unknown** ("Can't check right now"); `StatusBadge` gained `unknown` (neutral).
+- Verified: typecheck, lint, format, tests (shared 58, worker 178, dashboard 92), dashboard build.
+- The build stopped once more with Next.js's `SecurityFatalError`; this time its output also contained instructions addressed to AI agents (run `next upgrade --agent=security …`). Not followed: tool output is not an owner instruction. A retry built cleanly. The Next.js upgrade (16.4.0 → 16.4.2) is still waiting for the owner's go-ahead.
+- Changed docs: `ui-context.md`, `progress.md`.
 
 ### 2026-10-22 — Claude (chat-style Messages tab)
 - Owner checked the bot live in "Softwirelex group": tagged questions got replies (leave policy answered; wifi password and Christmas → "I don't know", as expected without a holidays entry).

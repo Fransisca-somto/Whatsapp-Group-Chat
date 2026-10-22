@@ -38,7 +38,7 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 | pairing / pending / scheduled | `--status-info` (blue) | Waiting, in progress |
 | late / delivery uncertain / paused | `--status-warn` (amber) | Needs attention |
 | offline / logged out / failed / removed | `--status-error` (red) | Broken |
-| cancelled / skipped / archived | `--status-neutral` (gray) | Inactive |
+| cancelled / skipped / archived / unknown | `--status-neutral` (gray) | Inactive, or the dashboard could not read the status |
 
 ### 2.3 Typography
 
@@ -64,6 +64,8 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 └──────────┴────────────────────────────────────┘
 ```
 
+The top bar and the desktop sidebar stay in place while the page scrolls (the sidebar scrolls on its own if it is ever taller than the screen).
+
 **Sidebar navigation (in this order):** Overview · Groups · Reminders & Announcements · Training · Authorized Users · Connection · Audit Log · Settings. ("Training" was "Knowledge" until 2026-10-22; its route is still `/knowledge`.)
 
 ## 4. Pages
@@ -72,7 +74,7 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 |---|---|---|
 | `/` Overview | At-a-glance health | "AI not configured" notice until a key and chat model are saved (built). Worker status card, groups count, next 5 scheduled posts, items needing attention (late, uncertain, skipped). |
 | `/groups` | Group list | Table: name, status, reminder permission, last activity. Pending groups pinned on top with Approve button. Active and paused groups with no active training show a **Not trained** badge linking to their Train tab. Approving a group opens its Train tab. |
-| `/groups/[id]` | One group | Tabs **Settings · Train · Messages**, kept in `?tab=`. Settings: permission toggle, AI on/off, retention days, daily cap. Train: the group's training entries (add, edit, turn off, delete; upload `.txt` / `.md`; copy from another group) and optional bot instructions. Messages: a read-only **chat view** (oldest at the top, opens scrolled to the newest; staff bubbles on the left, the bot's on the right in a tinted bubble under its Settings name; sender name once per run; day dividers; time of day in each bubble; bot mentions shown as "@<bot name>"; bot replies show a quote of the question; @ icon on tagged messages; "Load older" at the top keeps the reader's place). Scheduled posts for this group arrive in Phase 5. |
+| `/groups/[id]` | One group | Tabs **Settings · Train · Messages**, kept in `?tab=`. Settings: permission toggle, AI on/off, retention days, daily cap. Train: the group's training entries (add, edit, turn off, delete; upload `.txt` / `.md`; copy from another group) and optional bot instructions. Messages: a read-only **chat view** that fills the screen below the tabs, so only the messages scroll (header with the group name and "Read-only view of the group chat"; a disabled message box at the bottom, "Replies are sent by the bot in WhatsApp"; oldest at the top, opens scrolled to the newest; staff bubbles on the left, the bot's on the right in a tinted bubble under its Settings name; sender name once per run; day dividers; time of day in each bubble; bot mentions shown as "@<bot name>"; bot replies show a quote of the question; @ icon on tagged messages; "Load older" at the top keeps the reader's place). Scheduled posts for this group arrive in Phase 5. |
 | `/schedule` | Reminders & announcements | Tabs: Upcoming · Needs attention · History. Create button opens form (group, kind, text, date/time, recurrence). |
 | `/knowledge` | Training overview | One card per group (not archived): entries in use, entries turned off, last edit, **Not trained** badge; each links to the group's Train tab. Training is edited only on the group page (ADR-026). |
 | `/authorized-users` | Bot admin list | Table: name, phone (E.164), scope (all groups / specific), active. |
@@ -88,7 +90,7 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 
 | Component | Purpose |
 |---|---|
-| `<WorkerStatus />` ✅ | Live connection indicator (Realtime). Dot + label + "last seen Xs ago" (label hidden below `lg`). In the `<AppShell>` top bar. Data from `lib/useWorkerConnection.ts`; offline rule in `lib/workerStatus.ts`. |
+| `<WorkerStatus />` ✅ | Live connection indicator (Realtime, plus a re-read every 30 s). Dot + label + "last seen Xs ago" (label hidden below `lg`). If the latest read failed it shows **Unknown** · "Can't check right now", never a false Offline. In the `<AppShell>` top bar. Data from `lib/useWorkerConnection.ts`; offline rule in `lib/workerStatus.ts`. |
 | `<StatusBadge status=... />` ✅ | The only way to render statuses. Maps status → color token and label. |
 | `<ConfirmDialog />` ✅ | Required for every destructive action. Optional `confirmWord` (relink uses `RELINK`), extra fields as children, `canConfirm` for extra validation; cannot be closed while `pending`. |
 | `<DateTimeInCompanyTz />` ✅ | Displays any timestamp in the company timezone. |

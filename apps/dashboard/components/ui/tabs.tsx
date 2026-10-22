@@ -53,7 +53,9 @@ function TabsPanel({ className, ...props }: TabsPanelProps) {
   return (
     <TabsPrimitive.Panel
       data-slot="tabs-panel"
-      className={cn("outline-none focus-visible:ring-2 focus-visible:ring-ring", className)}
+      // No focus ring here: Base UI focuses the panel after a tab click, which drew an outline
+      // around the whole panel. The tabs keep their own keyboard focus ring.
+      className={cn("outline-none", className)}
       {...props}
     />
   );

@@ -6,18 +6,20 @@ import {
   localDateInTz,
   timeOfDayInTz,
 } from "@soft-agent-support/shared";
-import { AtSign, Loader2 } from "lucide-react";
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { AtSign, Loader2, SendHorizontal, Smile, Users } from "lucide-react";
+import { Fragment, useLayoutEffect, useRef, useState, useTransition } from "react";
 import type * as React from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { GROUP_MESSAGES_PAGE, MEDIA_PLACEHOLDER, type GroupMessageView } from "@/lib/groups";
 import { cn } from "@/lib/utils";
 import { loadOlderGroupMessages } from "@/server/actions/groups";
 
 type Props = {
   groupId: string;
+  groupName: string;
   /** Newest first, as the server reads them. */
   initial: GroupMessageView[];
   timeZone: string;
@@ -63,20 +65,66 @@ function plainBody(message: GroupMessageView, botName: string, botMentionIds: st
     .trim();
 }
 
+/** Smallest chat height on very short screens. */
+const MIN_HEIGHT = 320;
+
+/**
+ * The chat fills the screen below the tabs, so only the messages scroll (not the page). Its
+ * height is measured from where it starts on the page, and re-measured on resize and when its
+ * tab becomes visible (a hidden tab measures as zero).
+ */
+function useFillViewport() {
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) return;
+    const fit = () => {
+      if (frame.offsetParent === null) return; // inside a hidden tab
+      const top = frame.getBoundingClientRect().top + window.scrollY;
+      const bottomGap = window.matchMedia("(min-width: 768px)").matches ? 32 : 16; // <main> padding
+      const next = Math.max(MIN_HEIGHT, Math.floor(window.innerHeight - top - bottomGap));
+      setHeight((current) => (current === next ? current : next));
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+    observer?.observe(frame);
+    return () => {
+      window.removeEventListener("resize", fit);
+      observer?.disconnect();
+    };
+  }, []);
+
+  return { frameRef, height };
+}
+
 /** The group's messages as a chat: oldest at the top, bot on the right, "Load older" on top. */
-export function GroupMessages({ groupId, initial, timeZone, botName, botMentionIds }: Props) {
+export function GroupMessages({
+  groupId,
+  groupName,
+  initial,
+  timeZone,
+  botName,
+  botMentionIds,
+}: Props) {
   const [messages, setMessages] = useState(initial);
   const [hasMore, setHasMore] = useState(initial.length === GROUP_MESSAGES_PAGE);
   const [pending, startTransition] = useTransition();
+  const { frameRef, height } = useFillViewport();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const openedAtNewest = useRef(false);
   /** Scroll height before older messages were added, to keep the reader's place. */
   const keepPlaceFrom = useRef<number | null>(null);
 
-  // Open at the newest message, like a chat app.
-  useEffect(() => {
+  // Open at the newest message, like a chat app, once the chat has its real height.
+  useLayoutEffect(() => {
     const box = scrollRef.current;
-    if (box) box.scrollTop = box.scrollHeight;
-  }, []);
+    if (!box || openedAtNewest.current || height === null) return;
+    box.scrollTop = box.scrollHeight;
+    openedAtNewest.current = true;
+  }, [height]);
 
   useLayoutEffect(() => {
     const box = scrollRef.current;
@@ -84,14 +132,6 @@ export function GroupMessages({ groupId, initial, timeZone, botName, botMentionI
     box.scrollTop += box.scrollHeight - keepPlaceFrom.current;
     keepPlaceFrom.current = null;
   }, [messages]);
-
-  if (messages.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        No messages stored yet. Messages appear here once the group is approved.
-      </p>
-    );
-  }
 
   const loadOlder = () => {
     const oldest = messages.at(-1);
@@ -112,95 +152,151 @@ export function GroupMessages({ groupId, initial, timeZone, botName, botMentionI
   const byWaId = new Map(messages.map((message) => [message.wa_message_id, message]));
 
   return (
-    <div
-      ref={scrollRef}
-      className="max-h-[65vh] min-h-48 overflow-y-auto rounded-lg border bg-background p-3 sm:p-4"
+    <section
+      ref={frameRef}
+      aria-labelledby="chat-title"
+      style={height === null ? undefined : { height }}
+      className="flex min-h-80 flex-col overflow-hidden rounded-xl border bg-surface"
     >
-      {hasMore && (
-        <div className="mb-4 flex justify-center">
-          <Button variant="outline" size="sm" onClick={loadOlder} disabled={pending}>
-            {pending && <Loader2 aria-hidden="true" className="animate-spin" />}
-            Load older
-          </Button>
+      <header className="flex items-center gap-3 border-b px-4 py-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Users aria-hidden="true" className="size-4" />
+        </span>
+        <div className="min-w-0">
+          <h2 id="chat-title" className="truncate text-sm font-semibold">
+            {groupName}
+          </h2>
+          <p className="text-xs text-muted-foreground">Read-only view of the group chat</p>
         </div>
-      )}
-      <ol className="flex flex-col" aria-label="Messages, oldest first">
-        {chronological.map((message, index) => {
-          const previous = chronological[index - 1];
-          const day = localDateInTz(message.sent_at, timeZone);
-          const newDay = !previous || localDateInTz(previous.sent_at, timeZone) !== day;
-          const newRun = newDay || !previous || senderKey(previous) !== senderKey(message);
-          const fromBot = message.is_from_bot;
-          const quoted = message.quoted_wa_message_id
-            ? byWaId.get(message.quoted_wa_message_id)
-            : undefined;
+      </header>
 
-          return (
-            <Fragment key={message.id}>
-              {newDay && (
-                <li className="my-3 flex justify-center first:mt-0">
-                  <span className="rounded-full border bg-surface px-3 py-0.5 text-xs text-muted-foreground">
-                    {dayLabelInTz(message.sent_at, timeZone)}
-                  </span>
-                </li>
-              )}
-              <li
-                className={cn(
-                  "flex flex-col",
-                  fromBot ? "items-end" : "items-start",
-                  newRun ? "mt-3" : "mt-1",
+      <div ref={scrollRef} className="flex-1 overflow-y-auto bg-background p-3 sm:p-4">
+        {messages.length === 0 ? (
+          <p className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
+            No messages stored yet. Messages appear here once the group is approved.
+          </p>
+        ) : (
+          renderMessageList()
+        )}
+      </div>
+
+      <ReadOnlyComposer />
+    </section>
+  );
+
+  /** A plain render function, not a nested component, so the list is not remounted each render. */
+  function renderMessageList() {
+    return (
+      <>
+        {hasMore && (
+          <div className="mb-4 flex justify-center">
+            <Button variant="outline" size="sm" onClick={loadOlder} disabled={pending}>
+              {pending && <Loader2 aria-hidden="true" className="animate-spin" />}
+              Load older
+            </Button>
+          </div>
+        )}
+        <ol className="flex flex-col" aria-label="Messages, oldest first">
+          {chronological.map((message, index) => {
+            const previous = chronological[index - 1];
+            const day = localDateInTz(message.sent_at, timeZone);
+            const newDay = !previous || localDateInTz(previous.sent_at, timeZone) !== day;
+            const newRun = newDay || !previous || senderKey(previous) !== senderKey(message);
+            const fromBot = message.is_from_bot;
+            const quoted = message.quoted_wa_message_id
+              ? byWaId.get(message.quoted_wa_message_id)
+              : undefined;
+
+            return (
+              <Fragment key={message.id}>
+                {newDay && (
+                  <li className="my-3 flex justify-center first:mt-0">
+                    <span className="rounded-full border bg-surface px-3 py-0.5 text-xs text-muted-foreground">
+                      {dayLabelInTz(message.sent_at, timeZone)}
+                    </span>
+                  </li>
                 )}
-              >
-                {newRun && (
-                  <span className="mb-1 px-1 text-xs font-medium text-muted-foreground">
-                    {senderLabel(message, botName)}
-                  </span>
-                )}
-                <div
+                <li
                   className={cn(
-                    "max-w-[85%] rounded-xl border px-3 py-2 text-sm sm:max-w-[75%]",
-                    fromBot
-                      ? "rounded-tr-sm border-primary/20 bg-primary/10"
-                      : "rounded-tl-sm bg-surface",
+                    "flex flex-col",
+                    fromBot ? "items-end" : "items-start",
+                    newRun ? "mt-3" : "mt-1",
                   )}
                 >
-                  {quoted && (
-                    <div className="mb-1.5 rounded-md border-l-2 border-primary bg-background/60 px-2 py-1 text-xs">
-                      <span className="font-medium">{senderLabel(quoted, botName)}</span>
-                      <p className="line-clamp-2 text-muted-foreground">
-                        {plainBody(quoted, botName, botMentionIds)}
-                      </p>
-                    </div>
+                  {newRun && (
+                    <span className="mb-1 px-1 text-xs font-medium text-muted-foreground">
+                      {senderLabel(message, botName)}
+                    </span>
                   )}
-                  {message.body ? (
-                    <p className="whitespace-pre-wrap break-words">
-                      {renderBody(message.body, botName, botMentionIds)}
-                    </p>
-                  ) : (
-                    <p className="text-muted-foreground italic">
-                      {MEDIA_PLACEHOLDER[message.message_type] ?? "Message"}
-                    </p>
-                  )}
-                  <p className="mt-1 flex items-center justify-end gap-1 text-xs text-muted-foreground">
-                    {message.mentions_bot && (
-                      <span
-                        className="inline-flex items-center text-status-info"
-                        title="Tagged the bot"
-                      >
-                        <AtSign aria-hidden="true" className="size-3" />
-                        <span className="sr-only">Tagged</span>
-                      </span>
+                  <div
+                    className={cn(
+                      "max-w-[85%] rounded-xl border px-3 py-2 text-sm sm:max-w-[75%]",
+                      fromBot
+                        ? "rounded-tr-sm border-primary/20 bg-primary/10"
+                        : "rounded-tl-sm bg-surface",
                     )}
-                    <time dateTime={message.sent_at}>
-                      {timeOfDayInTz(message.sent_at, timeZone)}
-                    </time>
-                  </p>
-                </div>
-              </li>
-            </Fragment>
-          );
-        })}
-      </ol>
+                  >
+                    {quoted && (
+                      <div className="mb-1.5 rounded-md border-l-2 border-primary bg-background/60 px-2 py-1 text-xs">
+                        <span className="font-medium">{senderLabel(quoted, botName)}</span>
+                        <p className="line-clamp-2 text-muted-foreground">
+                          {plainBody(quoted, botName, botMentionIds)}
+                        </p>
+                      </div>
+                    )}
+                    {message.body ? (
+                      <p className="whitespace-pre-wrap break-words">
+                        {renderBody(message.body, botName, botMentionIds)}
+                      </p>
+                    ) : (
+                      <p className="text-muted-foreground italic">
+                        {MEDIA_PLACEHOLDER[message.message_type] ?? "Message"}
+                      </p>
+                    )}
+                    <p className="mt-1 flex items-center justify-end gap-1 text-xs text-muted-foreground">
+                      {message.mentions_bot && (
+                        <span
+                          className="inline-flex items-center text-status-info"
+                          title="Tagged the bot"
+                        >
+                          <AtSign aria-hidden="true" className="size-3" />
+                          <span className="sr-only">Tagged</span>
+                        </span>
+                      )}
+                      <time dateTime={message.sent_at}>
+                        {timeOfDayInTz(message.sent_at, timeZone)}
+                      </time>
+                    </p>
+                  </div>
+                </li>
+              </Fragment>
+            );
+          })}
+        </ol>
+      </>
+    );
+  }
+}
+
+/** A disabled message box so the view looks like a chat; replies only go out from WhatsApp. */
+function ReadOnlyComposer() {
+  return (
+    <div
+      className="flex items-center gap-2 border-t bg-surface px-3 py-2"
+      title="This is a read-only view. The bot replies in WhatsApp."
+    >
+      <Button variant="ghost" size="icon" disabled aria-label="Emoji (not available here)">
+        <Smile aria-hidden="true" />
+      </Button>
+      <Input
+        disabled
+        aria-label="Message (read-only view)"
+        placeholder="Replies are sent by the bot in WhatsApp"
+        className="rounded-full"
+      />
+      <Button size="icon" disabled aria-label="Send (not available here)" className="rounded-full">
+        <SendHorizontal aria-hidden="true" />
+      </Button>
     </div>
   );
 }

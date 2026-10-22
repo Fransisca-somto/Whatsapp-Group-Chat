@@ -70,7 +70,8 @@ export function AppShell({ user, children }: AppShellProps) {
       </Sheet>
 
       <div className="flex flex-1">
-        <aside className="hidden w-60 shrink-0 border-r bg-surface md:block">
+        {/* Stays in place below the top bar while the page scrolls. */}
+        <aside className="sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-60 shrink-0 self-start overflow-y-auto border-r bg-surface md:block">
           <SidebarNav role={user.role} />
         </aside>
         <main className="min-w-0 flex-1 p-4 md:p-8">

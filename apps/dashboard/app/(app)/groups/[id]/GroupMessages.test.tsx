@@ -29,6 +29,7 @@ function renderMessages(messages: GroupMessageView[]) {
   return render(
     <GroupMessages
       groupId="g1"
+      groupName="Softwirelex group"
       initial={messages}
       timeZone="Africa/Lagos"
       botName="Assistant"
@@ -45,9 +46,19 @@ const bubbleTexts = () =>
 beforeEach(() => loadOlderGroupMessages.mockReset());
 
 describe("GroupMessages", () => {
-  it("shows an empty state", () => {
+  it("shows an empty state inside the chat frame", () => {
     renderMessages([]);
     expect(screen.getByText(/No messages stored yet/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Softwirelex group" })).toBeInTheDocument();
+  });
+
+  it("has a chat header and a disabled message box", () => {
+    renderMessages([base]);
+    expect(screen.getByRole("heading", { name: "Softwirelex group" })).toBeInTheDocument();
+    expect(screen.getByText("Read-only view of the group chat")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message (read-only view)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send (not available here)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Emoji (not available here)" })).toBeDisabled();
   });
 
   it("reads like a chat: oldest first, with a day divider and local times", () => {

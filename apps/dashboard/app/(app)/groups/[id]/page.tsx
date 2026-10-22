@@ -178,18 +178,14 @@ async function GroupContent({ params, searchParams }: Props) {
             />
           ),
           messages: (
-            <section aria-labelledby="messages-title" className="rounded-xl border bg-surface p-6">
-              <h2 id="messages-title" className="mb-4 text-lg font-semibold">
-                Recent messages
-              </h2>
-              <GroupMessages
-                groupId={group.id}
-                initial={messagesResult.data as GroupMessageView[]}
-                timeZone={timeZone}
-                botName={botName}
-                botMentionIds={botMentionIds}
-              />
-            </section>
+            <GroupMessages
+              groupId={group.id}
+              groupName={group.name}
+              initial={messagesResult.data as GroupMessageView[]}
+              timeZone={timeZone}
+              botName={botName}
+              botMentionIds={botMentionIds}
+            />
           ),
         }}
       />
