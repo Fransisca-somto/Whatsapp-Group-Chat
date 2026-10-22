@@ -216,6 +216,14 @@ Newest first. One entry per working session.
 - Notes / issues: <anything the next session must know>
 ```
 
+### 2026-10-22 — Claude (chat-style Messages tab)
+- Owner checked the bot live in "Softwirelex group": tagged questions got replies (leave policy answered; wifi password and Christmas → "I don't know", as expected without a holidays entry).
+- Owner request, plan approved: the group page's Messages tab now reads like a chat (`GroupMessages.tsx`): oldest first in a scroll box opened at the newest, bot on the right under its Settings name, sender once per run, day dividers, times in bubbles, "@<bot name>" instead of the bot's numeric ID, quoted question on bot replies, "Load older" at the top that keeps the reader's place. Also removed the tab row's `overflow-x-auto`, which showed stray scroll arrows on Windows.
+- Files: `GroupMessages.tsx` (+ test), `groups/[id]/page.tsx` (bot name, bot IDs from `wa_connection`), `lib/groups.ts` (`wa_message_id`, `quoted_wa_message_id` columns; `mentionIdFromJid`), shared `timeOfDayInTz` / `dayLabelInTz` (+ tests), `components/ui/tabs.tsx`. No schema change.
+- Verified: typecheck, lint, format, tests (shared 58, worker 178, dashboard 87), dashboard build.
+- **Issue found:** one dashboard build stopped with Next.js's `SecurityFatalError` ("Your version of Next.js is affected by a known security vulnerability"); an immediate rebuild passed. The dashboard pins `next@16.4.0`; `16.4.2` is published. Proposed to the owner as a separate task (upgrade `next` and `eslint-config-next` to 16.4.2) before deploying to Vercel.
+- Changed docs: `ui-context.md`, `progress.md`.
+
 ### 2026-10-22 — Claude (3.2–3.6: the bot answers when tagged)
 - Task(s): 3.2–3.6 on branch `phase-3` (plan already approved; the owner confirmed Settings and the Train tab first, and picked `anthropic/claude-haiku-5.5` with fallback `google/gemini-2.5-flash-lite`).
 - Done:

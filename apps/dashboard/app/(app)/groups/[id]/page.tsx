@@ -11,6 +11,7 @@ import {
   GROUP_MESSAGE_COLUMNS,
   GROUP_MESSAGES_PAGE,
   GROUP_TABS,
+  mentionIdFromJid,
   type GroupMessageView,
   type GroupTab,
 } from "@/lib/groups";
@@ -66,26 +67,38 @@ async function GroupContent({ params, searchParams }: Props) {
   await requireCurrentUser();
   const supabase = await createClient();
 
-  const [groupResult, messagesResult, settingsResult, trainingResult, otherGroupsResult] =
-    await Promise.all([
-      supabase
-        .from("groups")
-        .select(
-          "id, name, status, reminder_permission, ai_enabled, daily_reply_cap, retention_days, bot_instructions",
-        )
-        .eq("id", id)
-        .maybeSingle(),
-      supabase
-        .from("group_messages")
-        .select(GROUP_MESSAGE_COLUMNS)
-        .eq("group_id", id)
-        .order("sent_at", { ascending: false })
-        .limit(GROUP_MESSAGES_PAGE),
-      supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
-      supabase.from("knowledge_entries").select(TRAINING_COLUMNS).eq("group_id", id).order("title"),
-      // Other groups' training sizes, for "Copy from group". Counts only, no content.
-      supabase.from("knowledge_entries").select("group_id, groups(name)").neq("group_id", id),
-    ]);
+  const [
+    groupResult,
+    messagesResult,
+    settingsResult,
+    trainingResult,
+    otherGroupsResult,
+    connectionResult,
+  ] = await Promise.all([
+    supabase
+      .from("groups")
+      .select(
+        "id, name, status, reminder_permission, ai_enabled, daily_reply_cap, retention_days, bot_instructions",
+      )
+      .eq("id", id)
+      .maybeSingle(),
+    supabase
+      .from("group_messages")
+      .select(GROUP_MESSAGE_COLUMNS)
+      .eq("group_id", id)
+      .order("sent_at", { ascending: false })
+      .limit(GROUP_MESSAGES_PAGE),
+    supabase
+      .from("company_settings")
+      .select("timezone, bot_display_name")
+      .eq("id", 1)
+      .maybeSingle(),
+    supabase.from("knowledge_entries").select(TRAINING_COLUMNS).eq("group_id", id).order("title"),
+    // Other groups' training sizes, for "Copy from group". Counts only, no content.
+    supabase.from("knowledge_entries").select("group_id, groups(name)").neq("group_id", id),
+    // The bot's WhatsApp IDs, so "@52055741849776" mentions can show as "@Assistant".
+    supabase.from("wa_connection").select("bot_jid, bot_lid").eq("id", 1).maybeSingle(),
+  ]);
   if (groupResult.error?.code === INVALID_UUID || (!groupResult.error && !groupResult.data)) {
     notFound();
   }
@@ -97,6 +110,10 @@ async function GroupContent({ params, searchParams }: Props) {
   const group = groupResult.data!;
   const status = group.status as GroupStatus;
   const timeZone = settingsResult.data?.timezone ?? "UTC";
+  const botName = settingsResult.data?.bot_display_name ?? "Assistant";
+  const botMentionIds = [connectionResult.data?.bot_jid, connectionResult.data?.bot_lid]
+    .map(mentionIdFromJid)
+    .filter((value): value is string => value !== null);
   const entries = (trainingResult.data ?? []) as TrainingEntryView[];
   const activeEntries = entries.filter((entry) => entry.is_active).length;
 
@@ -169,6 +186,8 @@ async function GroupContent({ params, searchParams }: Props) {
                 groupId={group.id}
                 initial={messagesResult.data as GroupMessageView[]}
                 timeZone={timeZone}
+                botName={botName}
+                botMentionIds={botMentionIds}
               />
             </section>
           ),

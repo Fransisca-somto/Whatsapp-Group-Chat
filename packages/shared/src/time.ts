@@ -19,6 +19,16 @@ export function localDateTimeInTz(date: Date | string, timeZone: string): string
   return formatInTimeZone(date, timeZone, "yyyy-MM-dd'T'HH:mm");
 }
 
+/** Time of day in `timeZone`, e.g. "3:05 PM" (chat bubbles). */
+export function timeOfDayInTz(date: Date | string, timeZone: string): string {
+  return formatInTimeZone(date, timeZone, "h:mm a");
+}
+
+/** Day divider label in `timeZone`, e.g. "Fri 9 Oct 2026". */
+export function dayLabelInTz(date: Date | string, timeZone: string): string {
+  return formatInTimeZone(date, timeZone, "EEE d MMM yyyy");
+}
+
 /** Short label for chat history lines, e.g. "Fri 9 Oct 3:05 PM". */
 export function chatTimeInTz(date: Date | string, timeZone: string): string {
   return formatInTimeZone(date, timeZone, "EEE d MMM h:mm a");

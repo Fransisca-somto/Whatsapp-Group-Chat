@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   chatTimeInTz,
+  dayLabelInTz,
   formatInCompanyTz,
   localDateInTz,
   localDateTimeInTz,
   nextWeekdayOccurrence,
+  timeOfDayInTz,
   utcToZoned,
   zonedLocalToUtc,
 } from "./time.ts";
@@ -35,6 +37,8 @@ describe("local date and time labels", () => {
 
   it("labels chat lines in local time", () => {
     expect(chatTimeInTz("2026-10-09T14:05:00Z", LAGOS)).toBe("Fri 9 Oct 3:05 PM");
+    expect(timeOfDayInTz("2026-10-09T14:05:00Z", LAGOS)).toBe("3:05 PM");
+    expect(dayLabelInTz("2026-10-09T23:30:00Z", LAGOS)).toBe("Sat 10 Oct 2026");
   });
 });
 
