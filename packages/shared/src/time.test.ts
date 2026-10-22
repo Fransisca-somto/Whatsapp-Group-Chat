@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { formatInCompanyTz, nextWeekdayOccurrence, utcToZoned, zonedLocalToUtc } from "./time.ts";
+import {
+  chatTimeInTz,
+  formatInCompanyTz,
+  localDateInTz,
+  localDateTimeInTz,
+  nextWeekdayOccurrence,
+  utcToZoned,
+  zonedLocalToUtc,
+} from "./time.ts";
 
 const LAGOS = "Africa/Lagos"; // UTC+1 all year, no DST
 const NEW_YORK = "America/New_York"; // DST starts 2026-03-08
@@ -15,6 +23,18 @@ describe("formatInCompanyTz", () => {
   it("shows the DST-correct abbreviation", () => {
     expect(formatInCompanyTz("2026-10-09T19:00:00Z", NEW_YORK)).toBe("Fri 9 Oct, 3:00 PM EDT");
     expect(formatInCompanyTz("2026-01-09T20:00:00Z", NEW_YORK)).toBe("Fri 9 Jan, 3:00 PM EST");
+  });
+});
+
+describe("local date and time labels", () => {
+  it("uses the company date, which can differ from the UTC date", () => {
+    // 23:30 UTC on the 9th is already 00:30 on the 10th in Lagos.
+    expect(localDateInTz("2026-10-09T23:30:00Z", LAGOS)).toBe("2026-10-10");
+    expect(localDateTimeInTz("2026-10-09T23:30:00Z", LAGOS)).toBe("2026-10-10T00:30");
+  });
+
+  it("labels chat lines in local time", () => {
+    expect(chatTimeInTz("2026-10-09T14:05:00Z", LAGOS)).toBe("Fri 9 Oct 3:05 PM");
   });
 });
 

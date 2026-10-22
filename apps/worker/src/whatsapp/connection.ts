@@ -34,6 +34,8 @@ export type SocketLike = Pick<
   | "groupMetadata"
   | "groupFetchAllParticipating"
   | "signalRepository"
+  | "sendMessage"
+  | "sendPresenceUpdate"
 >;
 export type SocketFactory = (auth: AuthenticationState) => Promise<SocketLike>;
 

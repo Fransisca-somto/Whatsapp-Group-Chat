@@ -33,6 +33,8 @@ export function memoryGroups(initial: Omit<GroupRecord, "id">[] = []) {
       return Promise.resolve();
     },
     touchActivity,
+    assistantSettings: () =>
+      Promise.resolve({ aiEnabled: true, dailyReplyCap: 200, botInstructions: null }),
   };
   return { rows, store, touchActivity, findByJid };
 }
@@ -46,6 +48,26 @@ export function memoryMessages() {
       }
       rows.push(m);
       return Promise.resolve(true);
+    },
+    recent: (groupId, before, limit) =>
+      Promise.resolve(
+        rows
+          .filter((r) => r.groupId === groupId && r.sentAt < before)
+          .sort((a, b) => a.sentAt.getTime() - b.sentAt.getTime())
+          .slice(-limit)
+          .map((r) => ({
+            senderName: r.senderName,
+            senderPhoneE164: r.senderPhoneE164,
+            isFromBot: r.isFromBot,
+            type: r.type,
+            body: r.body,
+            sentAt: r.sentAt.toISOString(),
+          })),
+      ),
+    setHandledStatus: (groupId, waMessageId, status) => {
+      const row = rows.find((r) => r.groupId === groupId && r.waMessageId === waMessageId);
+      if (row) row.handledStatus = status;
+      return Promise.resolve();
     },
   };
   return { rows, store };

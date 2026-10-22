@@ -9,6 +9,21 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** 0 = Sunday … 6 = Saturday, matching `Date.prototype.getDay`. */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
+/** The calendar date in `timeZone` as `YYYY-MM-DD` (e.g. the `ai_usage_daily.usage_date`). */
+export function localDateInTz(date: Date | string, timeZone: string): string {
+  return formatInTimeZone(date, timeZone, "yyyy-MM-dd");
+}
+
+/** Wall-clock time in `timeZone` as `YYYY-MM-DDTHH:mm`, the format the AI uses for `dueAtLocal`. */
+export function localDateTimeInTz(date: Date | string, timeZone: string): string {
+  return formatInTimeZone(date, timeZone, "yyyy-MM-dd'T'HH:mm");
+}
+
+/** Short label for chat history lines, e.g. "Fri 9 Oct 3:05 PM". */
+export function chatTimeInTz(date: Date | string, timeZone: string): string {
+  return formatInTimeZone(date, timeZone, "EEE d MMM h:mm a");
+}
+
 /** Display format for the dashboard, e.g. "Fri 9 Oct, 3:00 PM GMT+1". */
 export function formatInCompanyTz(date: Date | string, timeZone: string): string {
   return formatInTimeZone(date, timeZone, "EEE d MMM, h:mm a zzz");
