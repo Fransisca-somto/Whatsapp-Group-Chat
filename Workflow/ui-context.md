@@ -64,7 +64,7 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 └──────────┴────────────────────────────────────┘
 ```
 
-The top bar and the desktop sidebar stay in place while the page scrolls (the sidebar scrolls on its own if it is ever taller than the screen).
+The window itself never scrolls: the app shell is exactly the screen's height, and the sidebar and the page area (`<main data-page-scroll>`) each scroll on their own. The top bar and sidebar therefore never move, and a page can fill the screen (the group chat measures itself against `data-page-scroll`).
 
 **Sidebar navigation (in this order):** Overview · Groups · Reminders & Announcements · Training · Authorized Users · Connection · Audit Log · Settings. ("Training" was "Knowledge" until 2026-10-22; its route is still `/knowledge`.)
 
@@ -90,7 +90,7 @@ The top bar and the desktop sidebar stay in place while the page scrolls (the si
 
 | Component | Purpose |
 |---|---|
-| `<WorkerStatus />` ✅ | Live connection indicator (Realtime, plus a re-read every 30 s). Dot + label + "last seen Xs ago" (label hidden below `lg`). If the latest read failed it shows **Unknown** · "Can't check right now", never a false Offline. In the `<AppShell>` top bar. Data from `lib/useWorkerConnection.ts`; offline rule in `lib/workerStatus.ts`. |
+| `<WorkerStatus />` ✅ | Live connection indicator (Realtime, plus a re-read every 30 s). Dot + label + "last seen Xs ago" (label hidden below `lg`). If the latest read failed, or the row is not visible (e.g. an expired login token), it shows **Unknown** · "Can't check right now", never a false Offline. Realtime events with an empty record are ignored and trigger a re-read. In the `<AppShell>` top bar. Data from `lib/useWorkerConnection.ts`; offline rule in `lib/workerStatus.ts`. |
 | `<StatusBadge status=... />` ✅ | The only way to render statuses. Maps status → color token and label. |
 | `<ConfirmDialog />` ✅ | Required for every destructive action. Optional `confirmWord` (relink uses `RELINK`), extra fields as children, `canConfirm` for extra validation; cannot be closed while `pending`. |
 | `<DateTimeInCompanyTz />` ✅ | Displays any timestamp in the company timezone. |

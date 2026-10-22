@@ -6,7 +6,14 @@ const reads: (() => Promise<ReadResult>)[] = [];
 const maybeSingle = vi.fn(() =>
   (reads.shift() ?? (() => Promise.resolve({ data: null, error: null })))(),
 );
-const channel = { on: () => channel, subscribe: () => channel };
+let onUpdate: ((payload: { new: unknown }) => void) | null = null;
+const channel = {
+  on: (_event: string, _filter: unknown, handler: (payload: { new: unknown }) => void) => {
+    onUpdate = handler;
+    return channel;
+  },
+  subscribe: () => channel,
+};
 
 vi.mock("@/lib/supabase/client", () => ({
   createClient: () => ({
@@ -58,6 +65,29 @@ describe("useWorkerConnection", () => {
     await flush();
     expect(maybeSingle).toHaveBeenCalledTimes(2);
     expect(result.current).toMatchObject({ readFailed: false, row: ROW });
+  });
+
+  it("treats an invisible row as a failed read, not as offline", async () => {
+    reads.push(() => Promise.resolve({ data: null, error: null }));
+    const { result } = renderHook(() => useWorkerConnection());
+    await flush();
+    expect(result.current).toMatchObject({ readFailed: true, row: null });
+  });
+
+  it("ignores an empty Realtime record and re-reads instead", async () => {
+    reads.push(() => Promise.resolve({ data: ROW, error: null }));
+    reads.push(() => Promise.resolve({ data: { ...ROW, status: "reconnecting" }, error: null }));
+    const { result } = renderHook(() => useWorkerConnection());
+    await flush();
+    expect(result.current.row).toEqual(ROW);
+
+    act(() => onUpdate?.({ new: {} }));
+    await flush();
+    expect(maybeSingle).toHaveBeenCalledTimes(2);
+    expect(result.current.row?.status).toBe("reconnecting");
+
+    act(() => onUpdate?.({ new: { ...ROW, status: "connected" } }));
+    expect(result.current.row?.status).toBe("connected");
   });
 
   it("treats a thrown network error as a failed read", async () => {

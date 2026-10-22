@@ -216,6 +216,13 @@ Newest first. One entry per working session.
 - Notes / issues: <anything the next session must know>
 ```
 
+### 2026-10-23 — Claude (layout and status follow-up)
+- Owner's screenshot after the previous change: the page still scrolled, so the chat's message box sat mid-screen, and the badge still said "Offline · Last seen never".
+- Layout: the sticky-sidebar approach was replaced by a fixed-viewport app shell (`h-dvh`, window never scrolls; sidebar and `<main data-page-scroll>` scroll independently). The chat now measures itself against `data-page-scroll` (re-measured when the page area or the chat resizes), so its message box sits at the bottom of the screen. `AppShellSkeleton` matches.
+- Status: a signed-out read is rejected with 401 (would show "Unknown"), so the "never" state came from a status with no data, most likely a Realtime event with an empty record once the browser's token expired (the tab had been open since the previous night). Not confirmed in the browser. Fix: empty or partial Realtime records are ignored and trigger a re-read; a read that returns no row counts as failed ("Unknown").
+- Verified: typecheck, lint, format, tests (shared 58, worker 178, dashboard 94), dashboard build.
+- Changed docs: `ui-context.md`, `progress.md`.
+
 ### 2026-10-23 — Claude (fixed layout, chat frame, worker status fix)
 - Owner request, plan approved: sticky desktop sidebar (`AppShell.tsx`); the Messages chat fills the screen below the tabs (measured, re-measured on resize and when the tab becomes visible), so only the messages scroll; chat header with the group name; a disabled message box ("Replies are sent by the bot in WhatsApp"); no focus outline on tab panels (Base UI focused the panel after a tab click).
 - **Bug fixed:** the top bar showed "Offline · Last seen never" while the worker was connected (heartbeat 7 s old in the database). `useWorkerConnection` read the row once and never retried after a failed read. It now re-reads every 30 s, and while the latest read has failed the badge shows **Unknown** ("Can't check right now"); `StatusBadge` gained `unknown` (neutral).

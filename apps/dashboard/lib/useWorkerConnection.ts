@@ -4,6 +4,11 @@
 // 60 s offline rule update even when no new row arrives (api-interfaces.md §2.2). The row is
 // also re-read every 30 s, so a missed Realtime event or a failed first read heals itself;
 // while the latest read has failed, `readFailed` is true and the badge shows "Unknown".
+//
+// The wa_connection row always exists (single row, seeded), so "no row" means this browser
+// cannot see it (e.g. its login token expired): that is a failed read, never "Offline". Realtime
+// events with an empty record (sent when the token is no longer accepted) are ignored and
+// trigger a fresh read instead of replacing the status.
 import { useEffect, useState } from "react";
 
 import { createClient } from "@/lib/supabase/client";
@@ -41,6 +46,9 @@ export function useWorkerConnection(initial: WorkerConnection | null = null) {
         if (error) {
           console.error("wa_connection read failed", error);
           setReadFailed(true);
+        } else if (!data) {
+          console.error("wa_connection row not visible; the session may have expired");
+          setReadFailed(true);
         } else {
           setRow(data);
           setReadFailed(false);
@@ -65,7 +73,12 @@ export function useWorkerConnection(initial: WorkerConnection | null = null) {
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "wa_connection" },
         (payload) => {
-          setRow(payload.new as WorkerConnection);
+          const next = payload.new as Partial<WorkerConnection>;
+          if (typeof next.status !== "string" || !("last_heartbeat_at" in next)) {
+            void read(); // empty or partial record: ask the database instead
+            return;
+          }
+          setRow(next as WorkerConnection);
           setReadFailed(false);
           setNow(Date.now());
         },

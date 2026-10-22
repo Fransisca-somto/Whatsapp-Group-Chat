@@ -69,28 +69,33 @@ function plainBody(message: GroupMessageView, botName: string, botMentionIds: st
 const MIN_HEIGHT = 320;
 
 /**
- * The chat fills the screen below the tabs, so only the messages scroll (not the page). Its
- * height is measured from where it starts on the page, and re-measured on resize and when its
- * tab becomes visible (a hidden tab measures as zero).
+ * The chat fills the page area below the tabs, so its message box sits at the bottom of the
+ * screen and only the messages scroll. The page area is the app shell's scrolling <main>
+ * (`data-page-scroll`); the window itself never scrolls. Re-measured when the page area or the
+ * chat changes size, which includes its tab becoming visible (a hidden tab measures as zero).
  */
 function useFillViewport() {
-  const frameRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLElement>(null);
   const [height, setHeight] = useState<number | null>(null);
 
   useLayoutEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
+    const page = frame.closest<HTMLElement>("[data-page-scroll]");
     const fit = () => {
-      if (frame.offsetParent === null) return; // inside a hidden tab
-      const top = frame.getBoundingClientRect().top + window.scrollY;
-      const bottomGap = window.matchMedia("(min-width: 768px)").matches ? 32 : 16; // <main> padding
-      const next = Math.max(MIN_HEIGHT, Math.floor(window.innerHeight - top - bottomGap));
+      if (!page || frame.offsetParent === null) return; // no app shell, or inside a hidden tab
+      const pageBox = page.getBoundingClientRect();
+      // Where the chat starts inside the page area, independent of how far it is scrolled.
+      const top = frame.getBoundingClientRect().top - pageBox.top + page.scrollTop;
+      const bottomPadding = Number.parseFloat(getComputedStyle(page).paddingBottom) || 0;
+      const next = Math.max(MIN_HEIGHT, Math.floor(page.clientHeight - top - bottomPadding));
       setHeight((current) => (current === next ? current : next));
     };
     fit();
-    window.addEventListener("resize", fit);
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
     observer?.observe(frame);
+    if (page) observer?.observe(page);
+    window.addEventListener("resize", fit);
     return () => {
       window.removeEventListener("resize", fit);
       observer?.disconnect();
