@@ -216,6 +216,9 @@ Newest first. One entry per working session.
 - Notes / issues: <anything the next session must know>
 ```
 
+### 2026-10-23 — Claude (app shell pinned to the window)
+- Owner screenshot: the browser window itself still scrolled (its scrollbar showed and the top bar scrolled away), although the shell was `h-dvh` with `overflow-hidden` and the CSS was generated correctly. So something outside the shell adds height to the document; not identified (no browser access). Robust fix: the shell is now `fixed inset-0`, so window scrolling can never move it; the chat's message list has `overscroll-contain`. Dashboard tests (94), typecheck, lint, format, build pass.
+
 ### 2026-10-23 — Claude (chat reaches the bottom edge)
 - Owner clarified: no gap under the chat or sidebar; nothing scrolls except the messages. The chat now grows over `<main>`'s bottom padding and is pulled down by the same amount (negative margin), so it touches the bottom of the screen and the page area has nothing to scroll; bottom corners and border removed. Dashboard tests (94), typecheck, lint, format, build pass (the Next.js security warning stopped one build again; a retry passed).
 

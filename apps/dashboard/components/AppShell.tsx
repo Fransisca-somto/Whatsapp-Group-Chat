@@ -36,9 +36,10 @@ export function AppShell({ user, children }: AppShellProps) {
   const pageTitle = NAV_ITEMS.find((item) => isNavItemActive(item, pathname))?.label ?? "";
 
   return (
-    // The window never scrolls: the sidebar and the page content scroll on their own, so the
-    // sidebar and top bar always stay in place and pages can fill the screen (the group chat).
-    <div className="flex h-dvh flex-col overflow-hidden">
+    // Pinned to the browser window (fixed, edge to edge): the window's own scrolling can never
+    // move it. The sidebar and the page content scroll on their own, so the top bar and sidebar
+    // always stay in place and pages can fill the screen (the group chat).
+    <div className="fixed inset-0 flex flex-col overflow-hidden">
       <header className="z-40 flex h-14 shrink-0 items-center gap-3 border-b bg-surface px-4">
         <button
           type="button"

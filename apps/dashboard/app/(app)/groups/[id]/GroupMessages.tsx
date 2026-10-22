@@ -182,7 +182,10 @@ export function GroupMessages({
         </div>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto bg-background p-3 sm:p-4">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto overscroll-contain bg-background p-3 sm:p-4"
+      >
         {messages.length === 0 ? (
           <p className="flex h-full items-center justify-center text-center text-sm text-muted-foreground">
             No messages stored yet. Messages appear here once the group is approved.
