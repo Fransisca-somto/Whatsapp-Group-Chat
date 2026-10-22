@@ -76,6 +76,7 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 | `updateCompanySettings` | owner | `CompanySettings { companyName, botDisplayName, timezone }` (valid IANA zone). `ownerAlertPhone` dropped (unused since ADR-025). | ✅ `company_settings_updated` |
 | `saveOpenRouterKey` | owner | `OpenRouterKeyInput { apiKey }`. Checked with OpenRouter `GET /api/v1/key` first (401/403 → "rejected", other failures → "couldn't reach"), then stored with `rpc('set_openrouter_key')`. Returns only `{ hint }` (last 4 characters). | ✅ `ai_key_saved` (detail `hint` only) |
 | `removeOpenRouterKey` | owner | none; `rpc('clear_openrouter_key')` | ✅ `ai_key_removed` |
+| `loadAuditPage` | owner, staff | `LoadAuditPageInput { groupId \| null, action \| null, before }` (ISO timestamp); read-only, 50 per page through RLS, newest first. The `/audit` page reads its first page the same way, with `?group=` and `?action=` filters. | — |
 | `updateAiModels` | owner | `AiModelsInput { chatModel, fallbackModel \| null }` (fallback must differ). Both must exist in OpenRouter's live model list (`GET /api/v1/models`, cached 1 h in `server/openrouter.ts`, batch-only and non-text models left out). | ✅ `ai_models_updated` |
 
 `dueAtLocal` is a local date-time string interpreted in the company timezone and converted to UTC on the server with `packages/shared/time.ts`.
@@ -95,6 +96,20 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 | connection `open` | `ingest/groupSync.ts` | `groupFetchAllParticipating()` and reconcile: new → `pending`, renamed → update, removed live group → `removed`, re-added → `pending`. Catches changes made while the worker was offline. |
 
 **Worker audit actions** (`actor_type = 'system'`): `group_detected`, `group_renamed` (detail `previousName`), `group_readded`, `group_removed` (detail `reason`, `previousStatus`).
+
+**Assistant audit actions** (one per tagged message; `actor_type = 'member'`, `actor_ref` = sender phone or JID, `source_wa_message_id` = the tag; detail never holds the prompt or the answer text). Every detail has `ms` (handling time); AI outcomes add `models`, `usedFallback`, `inputTokens`, `outputTokens`, `costUsd`, and replies add `replyWaMessageId`.
+
+| Action | `handled_status` | Detail |
+|---|---|---|
+| `answered` | `answered` | `intent` (`question` / `smalltalk`), `kind` (`answer` / `dont_know` / `smalltalk`), `chars` |
+| `refused` | `refused` | `intent`, `reason` (`injection` / `abusive` / `off_topic`, the dashboard-only action, or `reminders_not_available`) |
+| `rate_limited` | `rate_limited` | `scope` (`user` / `group`), `notified`, `repliesToday` |
+| `not_set_up` | `failed` | `reason` (`no_ai_settings` / `no_training`) |
+| `ai_failed` | `failed` | `failure` (OpenRouter failure kind, e.g. `no_credits`, `timeout`), `httpStatus`, `notified`; or `reason: settings_unavailable` |
+| `send_failed` | `failed` | `intended` (the action that would have been recorded) |
+| `skipped_stale` | `failed` | `ageSeconds` (tag older than 5 minutes, P4) |
+
+Paused groups and groups with AI turned off write nothing and keep `handled_status = 'received'` (P6).
 
 ### 4.2 Normalized inbound message (`InboundGroupMessage`)
 ```ts
@@ -117,21 +132,24 @@ type InboundGroupMessage = {
 
 ### 4.3 Outbound (`whatsapp/sendQueue.ts`)
 ```ts
-enqueueSend(input: {
-  groupJid: string;
-  text: string;
-  quoteWaMessageId?: string;   // reply to the asker
-  showTyping?: boolean;        // composing presence 2–4 s first
-}): Promise<{ waMessageId: string }>;
+createSendQueue({ getSocket, logger }) → {
+  enqueue(input: {
+    groupJid: string;
+    text: string;
+    quoted?: WAMessage;          // the raw tagged message; the reply quotes it
+    showTyping?: boolean;        // composing presence 2–4 s first (AI replies)
+  }): Promise<{ waMessageId: string }>;  // rejects with SendError (not_connected / send_failed / timeout / stopped)
+  stop(): void;
+}
 ```
-Single-flight queue, ≥1.5 s between sends plus jitter. Bot's own sent messages are stored in `group_messages` with `is_from_bot = true`.
+Single-flight queue, ≥ 1.5 s between sends plus up to 1 s jitter, 15 s send timeout; one failure never blocks the queue. `getSocket` returns the socket only while this instance holds the lock, and the queue is stopped when the leader session stops. The pipeline stores each sent reply in `group_messages` with `is_from_bot = true` (Baileys reports our own sends as `append`, which ingest ignores). `SocketLike` gained `sendMessage` and `sendPresenceUpdate`.
 
 ---
 
 ## 5. Worker → OpenRouter
 
 Endpoint: `POST https://openrouter.ai/api/v1/chat/completions` with `Authorization: Bearer <key>`. The key comes from `get_openrouter_key()` and the models from `company_settings.ai_chat_model` / `ai_fallback_model`, all set on the dashboard Settings page (ADR-027, §2.3); there are no `OPENROUTER_*` environment variables. If no key or chat model is set, the bot replies *"I'm not set up yet. Please ask an admin."*
-Timeout **20 s**. On timeout, 429 or 5xx: retry once with the fallback model (no fallback set → no retry). If that fails: bot replies *"Sorry, I can't answer right now. Please try again shortly."*, `handled_status = 'failed'`, audit.
+Timeout **20 s**. On timeout, network error, 429, 5xx or an empty / unreadable answer: retry once with the fallback model (no fallback set → no retry). 401/403 (`invalid_key`), 402 (`no_credits`) and other 4xx fail at once. Requests send `usage: { include: true }` so the response carries the cost. Implemented in `ai/openrouter.ts` (`OpenRouterError.failure` names the cause). If that fails: bot replies *"Sorry, I can't answer right now. Please try again shortly."*, `handled_status = 'failed'`, audit.
 Token usage and cost from the response are added to `ai_usage_daily` through `record_ai_usage()`.
 
 ### 5.1 Call A — Intent classification
@@ -193,7 +211,11 @@ Messages from anyone other than the requester never affect the request.
 | `notAuthorized` | Sorry, only authorized team members can set reminders here. |
 | `dashboardOnly` | That can only be done from the dashboard. Please ask an admin. |
 | `unclearTime` | I couldn't work out the exact day and time. Could you say it again, e.g. "Friday 3pm"? |
-| `dontKnow` | I don't have that information. Please check with {responsible} . |
+| `dontKnow` | I don't have that information. Please check with your team lead. (P5) |
+| `notConfigured` | I'm not set up yet. Please ask an admin. (no OpenRouter key or chat model) |
+| `notTrained` | I haven't been set up for this group yet. Please ask an admin. (no active training) |
+| `dailyLimit` | I've reached my reply limit for today in this group. Please try again tomorrow. |
+| `remindersNotYet` | Setting reminders here isn't available yet. Please ask an admin to add it from the dashboard. (P3, until Phase 6) |
 | `rateLimited` | I'm getting a lot of requests. Please try again in a minute. |
 | `aiUnavailable` | Sorry, I can't answer right now. Please try again shortly. |
 | `lateNote` | (Sent late: this was scheduled for {time}.) |
@@ -248,9 +270,14 @@ runLeaderLoop(lock, startSession, signal, logger): Promise<void>;
 // ingest/
 handleInbound(msg: InboundGroupMessage): Promise<void>;     // dedupe → store → gates → route
 
-// assistant/
-classifyIntent(ctx: IntentContext): Promise<IntentResult>;
-answerQuestion(ctx: AnswerContext): Promise<string>;
+// assistant/  (pipeline.ts wires these; index.ts passes onTagged → assistant.handle)
+createAssistant(deps) → { handle(message, group, raw): void; process(...): Promise<void> };
+classifyIntent(client, ai, IntentPromptInput): Promise<{ intent: IntentResult; call: ChatResult }>;
+answerQuestion(client, ai, AnswerPromptInput): Promise<{ kind: 'answer', text, long, call } | { kind: 'dont_know', call }>;
+replyToSmalltalk(client, ai, { companyName, botName, message }): Promise<{ text, call }>;
+// The intent call gets the last 5 messages; the answer gets the last 15 plus the group's
+// training (≤ 12,000 chars, oldest-edited dropped first). A bare tag (no text) skips the
+// classifier and is treated as smalltalk. Smalltalk: one short line, temperature 0.5, 60 tokens.
 
 // reminders/
 handleReminderIntent(msg, group, draft): Promise<void>;

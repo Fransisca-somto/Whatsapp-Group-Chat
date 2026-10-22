@@ -77,7 +77,7 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 | `/knowledge` | Training overview | One card per group (not archived): entries in use, entries turned off, last edit, **Not trained** badge; each links to the group's Train tab. Training is edited only on the group page (ADR-026). |
 | `/authorized-users` | Bot admin list | Table: name, phone (E.164), scope (all groups / specific), active. |
 | `/connection` | Pairing & relink | Current number, status, last heartbeat, Link / Relink button, pairing code display with countdown, re-admission checklist after relink. Owner only. |
-| `/audit` | Bot action log | Filterable table: time, group, actor, action, result. |
+| `/audit` | Bot action log | Built. Filters for group and action (kept in `?group=` / `?action=`); table of time, group, who (dashboard user name, member phone, or System), action and a one-line result (e.g. "answered · 412 tokens", "tried to change the rules"); 50 per page with "Load older"; cards on mobile. Labels and summaries in `lib/audit.ts`. |
 | `/settings` | Company and AI provider | **Company:** company name, bot name, timezone (type-to-search list). **AI provider:** OpenRouter key (password field; after saving only "ends in …abcd" with Replace and Remove), chat model and optional fallback model (type-to-search list of OpenRouter models with prices). Owner only. |
 
 ## 5. Component Conventions

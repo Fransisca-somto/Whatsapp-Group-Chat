@@ -1,3 +1,4 @@
+export * from "./audit.ts";
 export * from "./authorizedUser.ts";
 export * from "./companySettings.ts";
 export * from "./enums.ts";

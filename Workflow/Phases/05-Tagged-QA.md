@@ -1,7 +1,7 @@
 # Step 05 — Phase 3: Settings, Per-Group Training and Tagged Q&A
 
 > Covers `progress.md` Phase 3, tasks **3.0–3.6** (3.0 is new; 3.1 is changed from a shared knowledge base to per-group training).
-> Status: **approved 2026-10-22.** 3.0 and 3.1 built (awaiting migration 0009 and a live check); 3.2–3.6 not started.
+> Status: **approved 2026-10-22.** 3.0–3.6 built; migration 0009 applied; Settings and training checked by the owner. Awaiting the live WhatsApp test (Verify → Live, steps 3–9).
 > Branch: `phase-3`, created from `main` after `phase-2` is merged. One commit per task.
 > Rule (ADR-023): the agent may run terminal commands; pushing and deleting data still need approval.
 

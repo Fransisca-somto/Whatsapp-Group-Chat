@@ -101,6 +101,8 @@ Every tagged message passes through these steps in order. No step may be skipped
 
 The LLM's output can never grant permissions, choose a group, or write data.
 
+**Implemented in Phase 3** (`assistant/pipeline.ts`, per group through `assistant/groupQueue.ts`): steps 1–3 live in ingest; the pipeline then checks the group is `active` with AI on (paused or AI off: silent), skips tags older than 5 minutes (P4), applies the rate gate, then two set-up gates (OpenRouter key and chat model saved; the group has active training) before step 6. Step 5 (pending confirmation) arrives in Phase 6; until then `create_reminder` gets a fixed "not available yet" reply. Every outcome sets `handled_status` and writes one `bot_actions` row (`api-interfaces.md` §4.1).
+
 ## 5. Single-Connection Guarantee (Leader Lock)
 
 A WhatsApp linked device must have exactly one live connection.
@@ -175,6 +177,7 @@ Locally the worker reads `apps/worker/.env` through Node's built-in `--env-file-
 
 - All outgoing messages go through one **send queue** in `whatsapp/sendQueue.ts`: one message at a time, minimum 1.5 s between sends, plus randomized jitter.
 - Show "composing" presence for 2–4 s before AI replies.
+- Replies quote the tagged message. Only the lock holder's send queue reaches WhatsApp; it is stopped with the leader session.
 - Never send bulk identical messages across many groups in the same second; stagger scheduled posts by at least 3 s.
 
 ## 11. Decision-Making Rules for Agents
