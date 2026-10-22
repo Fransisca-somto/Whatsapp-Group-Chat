@@ -216,6 +216,9 @@ Newest first. One entry per working session.
 - Notes / issues: <anything the next session must know>
 ```
 
+### 2026-10-23 — Claude (chat reaches the bottom edge)
+- Owner clarified: no gap under the chat or sidebar; nothing scrolls except the messages. The chat now grows over `<main>`'s bottom padding and is pulled down by the same amount (negative margin), so it touches the bottom of the screen and the page area has nothing to scroll; bottom corners and border removed. Dashboard tests (94), typecheck, lint, format, build pass (the Next.js security warning stopped one build again; a retry passed).
+
 ### 2026-10-23 — Claude (layout and status follow-up)
 - Owner's screenshot after the previous change: the page still scrolled, so the chat's message box sat mid-screen, and the badge still said "Offline · Last seen never".
 - Layout: the sticky-sidebar approach was replaced by a fixed-viewport app shell (`h-dvh`, window never scrolls; sidebar and `<main data-page-scroll>` scroll independently). The chat now measures itself against `data-page-scroll` (re-measured when the page area or the chat resizes), so its message box sits at the bottom of the screen. `AppShellSkeleton` matches.

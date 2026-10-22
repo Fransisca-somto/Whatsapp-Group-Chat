@@ -69,14 +69,14 @@ function plainBody(message: GroupMessageView, botName: string, botMentionIds: st
 const MIN_HEIGHT = 320;
 
 /**
- * The chat fills the page area below the tabs, so its message box sits at the bottom of the
- * screen and only the messages scroll. The page area is the app shell's scrolling <main>
+ * The chat fills the page area below the tabs down to the very bottom edge of the screen (no gap),
+ * so its message box sits at the bottom and only the messages scroll. The page area is the app shell's scrolling <main>
  * (`data-page-scroll`); the window itself never scrolls. Re-measured when the page area or the
  * chat changes size, which includes its tab becoming visible (a hidden tab measures as zero).
  */
 function useFillViewport() {
   const frameRef = useRef<HTMLElement>(null);
-  const [height, setHeight] = useState<number | null>(null);
+  const [size, setSize] = useState<{ height: number; pullDown: number } | null>(null);
 
   useLayoutEffect(() => {
     const frame = frameRef.current;
@@ -87,9 +87,15 @@ function useFillViewport() {
       const pageBox = page.getBoundingClientRect();
       // Where the chat starts inside the page area, independent of how far it is scrolled.
       const top = frame.getBoundingClientRect().top - pageBox.top + page.scrollTop;
-      const bottomPadding = Number.parseFloat(getComputedStyle(page).paddingBottom) || 0;
-      const next = Math.max(MIN_HEIGHT, Math.floor(page.clientHeight - top - bottomPadding));
-      setHeight((current) => (current === next ? current : next));
+      // Reach the very bottom of the screen: grow over the page area's bottom padding and pull
+      // the chat down by the same amount, so the page itself has nothing left to scroll.
+      const pullDown = Number.parseFloat(getComputedStyle(page).paddingBottom) || 0;
+      const height = Math.max(MIN_HEIGHT, Math.floor(page.clientHeight - top));
+      setSize((current) =>
+        current?.height === height && current.pullDown === pullDown
+          ? current
+          : { height, pullDown },
+      );
     };
     fit();
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
@@ -102,7 +108,7 @@ function useFillViewport() {
     };
   }, []);
 
-  return { frameRef, height };
+  return { frameRef, size };
 }
 
 /** The group's messages as a chat: oldest at the top, bot on the right, "Load older" on top. */
@@ -117,7 +123,8 @@ export function GroupMessages({
   const [messages, setMessages] = useState(initial);
   const [hasMore, setHasMore] = useState(initial.length === GROUP_MESSAGES_PAGE);
   const [pending, startTransition] = useTransition();
-  const { frameRef, height } = useFillViewport();
+  const { frameRef, size } = useFillViewport();
+  const height = size?.height ?? null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const openedAtNewest = useRef(false);
   /** Scroll height before older messages were added, to keep the reader's place. */
@@ -160,8 +167,8 @@ export function GroupMessages({
     <section
       ref={frameRef}
       aria-labelledby="chat-title"
-      style={height === null ? undefined : { height }}
-      className="flex min-h-80 flex-col overflow-hidden rounded-xl border bg-surface"
+      style={size === null ? undefined : { height: size.height, marginBottom: -size.pullDown }}
+      className="flex min-h-80 flex-col overflow-hidden rounded-t-xl border border-b-0 bg-surface"
     >
       <header className="flex items-center gap-3 border-b px-4 py-3">
         <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
