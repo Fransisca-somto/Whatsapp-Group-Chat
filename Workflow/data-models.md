@@ -11,9 +11,8 @@
 company_settings (1 row)
 dashboard_users ── auth.users
 
-knowledge_entries                      (shared brain, all groups)
-
-groups ─┬── group_messages             (per group history, searchable)
+groups ─┬── knowledge_entries          (per group training, ADR-026)
+        ├── group_messages             (per group history, searchable)
         ├── scheduled_posts            (reminders + announcements)
         ├── pending_reminder_requests  (awaiting "yes")
         ├── authorized_user_groups ── authorized_users
@@ -39,8 +38,13 @@ create extension if not exists pgcrypto;
 | id | smallint PK | check `id = 1` |
 | company_name | text not null | Used in the AI system prompt |
 | timezone | text not null | IANA name, e.g. `Africa/Lagos` |
-| owner_alert_phone | text | E.164 |
+| owner_alert_phone | text | E.164. Unused since ADR-025; not shown in Settings |
 | bot_display_name | text not null default 'Assistant' | |
+| ai_chat_model | text | OpenRouter model id, e.g. `anthropic/claude-haiku-5.5`; null = AI not configured (0009) |
+| ai_fallback_model | text | null = no fallback (0009) |
+| openrouter_key_hint | text | Last 4 characters of the saved key, ≤ 8 chars; written only by `set_openrouter_key()` (0009) |
+
+The OpenRouter key itself is **not** in any table: it is the Vault secret `openrouter_api_key` (§5.6, ADR-027).
 
 ### 3.2 `dashboard_users`
 | Column | Type | Notes |
@@ -49,19 +53,20 @@ create extension if not exists pgcrypto;
 | display_name | text not null | |
 | role | text not null | check in (`owner`,`staff`) |
 
-### 3.3 `knowledge_entries`
+### 3.3 `knowledge_entries` (per-group training)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| title | text not null | |
-| content | text not null | |
+| group_id | uuid not null | FK → groups on delete cascade. The bot in a group reads only that group's entries (0009, ADR-026) |
+| title | text not null | The heading, 1–200 chars |
+| content | text not null | 1–8,000 chars. Markdown; `## Subheading` lines separate sections |
 | is_active | boolean not null default true | Inactive entries are never retrieved |
 | embedding | vector(1536) | null until embedded |
 | embedding_status | text not null default 'pending' | `pending`,`done`,`failed` |
 | tsv | tsvector generated always as (to_tsvector('simple', title \|\| ' ' \|\| content)) stored | |
 | updated_by | uuid | FK → dashboard_users |
 
-Indexes: HNSW on `embedding vector_cosine_ops`; GIN on `tsv`.
+Indexes: HNSW on `embedding vector_cosine_ops`; GIN on `tsv`; (`group_id`, `updated_at desc`).
 Editing `title` or `content` resets `embedding_status = 'pending'`.
 
 ### 3.4 `groups`
@@ -78,6 +83,7 @@ Editing `title` or `content` resets `embedding_status = 'pending'`.
 | approved_by | uuid | FK → dashboard_users |
 | approved_at | timestamptz | |
 | last_activity_at | timestamptz | |
+| bot_instructions | text | Optional, ≤ 1,000 chars. Added to the fixed answer rules for this group, never replacing them (0009, ADR-026) |
 
 `active` and `paused` groups have messages stored (owner decision, 2026-10-19); only `active` groups get replies and posts. `pending`, `removed` and `archived` groups store nothing. The worker sets `pending` (new or re-added group) and `removed` (bot left); the dashboard moves groups only along the transitions in `packages/shared/src/groups.ts` (approve, pause, resume, archive).
 
@@ -260,7 +266,7 @@ RLS is **enabled on every table**. The worker uses the service role and bypasses
 
 Helper: `public.current_dashboard_role()` returns the caller's role from `dashboard_users` (`security definer`; null if the caller is not a dashboard user). It was renamed from `current_role()` because that is a reserved SQL keyword. Every policy requires a non-null role, so a stray Supabase sign-up sees nothing. Public sign-ups should also be disabled in Supabase Auth.
 
-Defense in depth: `anon` has no table privileges, and `authenticated` has none on `wa_auth_state` and `worker_lock`. Worker-only functions (§5) are executable by `service_role` only.
+Defense in depth: `anon` has no table privileges, and `authenticated` has none on `wa_auth_state` and `worker_lock`. Worker-only functions (§5) are executable by `service_role` only. The exceptions are `set_openrouter_key()` and `clear_openrouter_key()` (§5.6): `authenticated` may call them, and they check for the owner role themselves. The Vault secret is never readable through RLS.
 
 ## 5. Database Functions
 
@@ -289,8 +295,8 @@ where s.id is not null or k.id is not null
 order by score desc
 limit p_limit;
 ```
-### 5.2 `search_knowledge(p_query_embedding, p_query_text, p_limit int default 5)`
-Same reciprocal rank fusion over active `knowledge_entries`.
+### 5.2 `search_knowledge(p_group_id uuid, p_query_embedding, p_query_text, p_limit int default 5)`
+Same reciprocal rank fusion over the **given group's** active `knowledge_entries`. The group is required (migration 0009 replaced the earlier group-less version), so training never crosses groups.
 
 ### 5.3 `claim_due_posts(p_claim_token uuid, p_limit int default 10)`
 Atomically moves due rows from `scheduled` to `sending`:
@@ -319,6 +325,12 @@ Returns false when no row was updated. (Implemented in plpgsql with `return foun
 - `check_worker_offline() returns void`: if `wa_connection.last_heartbeat_at` is older than 5 minutes and no `offline` alert is open, inserts `alerts(kind 'offline', incident_key 'offline:<heartbeat UTC>')`, queues an email to Resend through `net.http_post` and sets `sent_at`; if the heartbeat is fresh, resolves open `offline` alerts. Does nothing if the worker has never sent a heartbeat. `security definer`, `service_role` only.
 - `pg_cron` job `worker-offline-check` runs `check_worker_offline()` every minute. The migration unschedules any job with that name first, so re-running it never duplicates the job.
 
+### 5.6 AI provider and usage functions (migration `0009_ai_settings_and_group_training.sql`)
+- `set_openrouter_key(p_key text) returns void`: creates or updates the Vault secret `openrouter_api_key` and sets `company_settings.openrouter_key_hint` to the last 4 characters. `security definer`; raises `42501` unless `current_dashboard_role() = 'owner'`, and rejects keys shorter than 20, longer than 500 or containing whitespace. Executable by `authenticated` (the dashboard calls it with the owner's session; the key is checked with OpenRouter first, in the server action).
+- `clear_openrouter_key() returns void`: deletes the Vault secret and clears the hint. Owner only, same check.
+- `get_openrouter_key() returns text`: the decrypted key, or null. `service_role` only (worker).
+- `record_ai_usage(p_group_id uuid, p_usage_date date, p_input_tokens int, p_output_tokens int, p_cost_usd numeric, p_replies int default 1) returns void`: one-statement upsert that adds to the day's `ai_usage_daily` row, so concurrent replies never lose a count. `p_usage_date` is the company-timezone date, computed by the caller. `service_role` only.
+
 **Implementation notes (migration `0006_functions.sql`)**
 - Both search functions order each branch by rank *before* `limit 30`, skip the semantic branch when the query embedding is null, and re-check `group_id` in the final select.
 - Search functions, `claim_due_posts` and `acquire_worker_lock` are executable by `service_role` only.
@@ -329,7 +341,7 @@ Returns false when no row was updated. (Implemented in plpgsql with `return foun
 - Phone numbers always stored in E.164.
 - `group_messages` is never updated except `handled_status`, `embedding`, `embedding_status` (and the automatic `updated_at`). Enforced by the `group_messages_guard` trigger, which also binds the service-role worker.
 - `bot_actions` is append-only (no update/delete policy, even for owner). Enforced by triggers that reject UPDATE, DELETE and TRUNCATE.
-- `knowledge_entries`: editing `title` or `content` resets `embedding_status` to `pending` (trigger).
+- `knowledge_entries`: editing `title` or `content` resets `embedding_status` to `pending` (trigger). Every dashboard write filters on both `id` and `group_id`; the worker reads only the asking group's rows.
 - `scheduled_posts`: a check constraint allows `recurrence_rule` only when `created_via = 'dashboard'` (ADR-008).
 - `updated_at` is maintained by a `set_updated_at()` trigger on every mutable table; `group_messages` therefore also carries `updated_at`.
 - Retention job (daily, worker): delete `group_messages` older than `groups.retention_days` when set.

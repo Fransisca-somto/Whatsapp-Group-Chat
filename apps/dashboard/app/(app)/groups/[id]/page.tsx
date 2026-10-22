@@ -5,18 +5,25 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
 import { StatusBadge } from "@/components/StatusBadge";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { GROUP_MESSAGE_COLUMNS, GROUP_MESSAGES_PAGE, type GroupMessageView } from "@/lib/groups";
 import { createClient } from "@/lib/supabase/server";
+import { TRAINING_COLUMNS, type TrainingEntryView, type TrainingSourceGroup } from "@/lib/training";
 import { requireCurrentUser } from "@/server/currentUser";
 
 import { GroupStatusActions } from "../GroupStatusActions";
 import { GroupMessages } from "./GroupMessages";
 import { GroupSettingsForm } from "./GroupSettingsForm";
+import { GROUP_TABS, GroupTabs, type GroupTab } from "./GroupTabs";
+import { TrainTab } from "./TrainTab";
 
-type Props = { params: Promise<{ id: string }> };
+type Props = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string | string[] }>;
+};
 
-export default function GroupPage({ params }: Props) {
+export default function GroupPage({ params, searchParams }: Props) {
   return (
     <>
       <Link
@@ -27,7 +34,7 @@ export default function GroupPage({ params }: Props) {
         All groups
       </Link>
       <Suspense fallback={<Skeleton className="h-96 w-full rounded-xl" />}>
-        <GroupContent params={params} />
+        <GroupContent params={params} searchParams={searchParams} />
       </Suspense>
     </>
   );
@@ -43,36 +50,62 @@ const STATUS_HELP: Record<GroupStatus, string> = {
   archived: "Archived. Nothing is stored or answered.",
 };
 
-async function GroupContent({ params }: Props) {
-  const { id } = await params;
+function pickTab(value: string | string[] | undefined): GroupTab {
+  const tab = Array.isArray(value) ? value[0] : value;
+  return GROUP_TABS.find((known) => known === tab) ?? "settings";
+}
+
+async function GroupContent({ params, searchParams }: Props) {
+  const [{ id }, { tab }] = await Promise.all([params, searchParams]);
   await requireCurrentUser();
   const supabase = await createClient();
 
-  const [groupResult, messagesResult, settingsResult] = await Promise.all([
-    supabase
-      .from("groups")
-      .select("id, name, status, reminder_permission, ai_enabled, daily_reply_cap, retention_days")
-      .eq("id", id)
-      .maybeSingle(),
-    supabase
-      .from("group_messages")
-      .select(GROUP_MESSAGE_COLUMNS)
-      .eq("group_id", id)
-      .order("sent_at", { ascending: false })
-      .limit(GROUP_MESSAGES_PAGE),
-    supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
-  ]);
+  const [groupResult, messagesResult, settingsResult, trainingResult, otherGroupsResult] =
+    await Promise.all([
+      supabase
+        .from("groups")
+        .select(
+          "id, name, status, reminder_permission, ai_enabled, daily_reply_cap, retention_days, bot_instructions",
+        )
+        .eq("id", id)
+        .maybeSingle(),
+      supabase
+        .from("group_messages")
+        .select(GROUP_MESSAGE_COLUMNS)
+        .eq("group_id", id)
+        .order("sent_at", { ascending: false })
+        .limit(GROUP_MESSAGES_PAGE),
+      supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
+      supabase.from("knowledge_entries").select(TRAINING_COLUMNS).eq("group_id", id).order("title"),
+      // Other groups' training sizes, for "Copy from group". Counts only, no content.
+      supabase.from("knowledge_entries").select("group_id, groups(name)").neq("group_id", id),
+    ]);
   if (groupResult.error?.code === INVALID_UUID || (!groupResult.error && !groupResult.data)) {
     notFound();
   }
   if (groupResult.error) throw new Error(`Could not load the group: ${groupResult.error.message}`);
-  if (messagesResult.error) {
-    throw new Error(`Could not load messages: ${messagesResult.error.message}`);
+  for (const result of [messagesResult, trainingResult, otherGroupsResult]) {
+    if (result.error) throw new Error(`Could not load the group: ${result.error.message}`);
   }
 
   const group = groupResult.data!;
   const status = group.status as GroupStatus;
   const timeZone = settingsResult.data?.timezone ?? "UTC";
+  const entries = (trainingResult.data ?? []) as TrainingEntryView[];
+  const activeEntries = entries.filter((entry) => entry.is_active).length;
+
+  const sources = new Map<string, TrainingSourceGroup>();
+  for (const row of otherGroupsResult.data ?? []) {
+    const current = sources.get(row.group_id);
+    if (current) current.entryCount += 1;
+    else
+      sources.set(row.group_id, {
+        id: row.group_id,
+        name: row.groups?.name ?? "Group",
+        entryCount: 1,
+      });
+  }
+  const sourceGroups = [...sources.values()].sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className="flex flex-col gap-6">
@@ -89,31 +122,52 @@ async function GroupContent({ params }: Props) {
         </div>
       </div>
 
-      <section aria-labelledby="settings-title" className="rounded-xl border bg-surface p-6">
-        <h2 id="settings-title" className="mb-4 text-lg font-semibold">
-          Settings
-        </h2>
-        <GroupSettingsForm
-          groupId={group.id}
-          defaults={{
-            reminderPermission: group.reminder_permission as ReminderPermission,
-            aiEnabled: group.ai_enabled,
-            dailyReplyCap: group.daily_reply_cap,
-            retentionDays: group.retention_days,
-          }}
-        />
-      </section>
-
-      <section aria-labelledby="messages-title" className="rounded-xl border bg-surface p-6">
-        <h2 id="messages-title" className="mb-4 text-lg font-semibold">
-          Recent messages
-        </h2>
-        <GroupMessages
-          groupId={group.id}
-          initial={messagesResult.data as GroupMessageView[]}
-          timeZone={timeZone}
-        />
-      </section>
+      <GroupTabs
+        initialTab={pickTab(tab)}
+        badges={{
+          train: activeEntries === 0 ? <Badge variant="outline">Not trained</Badge> : undefined,
+        }}
+        panels={{
+          settings: (
+            <section aria-labelledby="settings-title" className="rounded-xl border bg-surface p-6">
+              <h2 id="settings-title" className="mb-4 text-lg font-semibold">
+                Settings
+              </h2>
+              <GroupSettingsForm
+                groupId={group.id}
+                defaults={{
+                  reminderPermission: group.reminder_permission as ReminderPermission,
+                  aiEnabled: group.ai_enabled,
+                  dailyReplyCap: group.daily_reply_cap,
+                  retentionDays: group.retention_days,
+                }}
+              />
+            </section>
+          ),
+          train: (
+            <TrainTab
+              groupId={group.id}
+              groupName={group.name}
+              entries={entries}
+              sourceGroups={sourceGroups}
+              botInstructions={group.bot_instructions}
+              timeZone={timeZone}
+            />
+          ),
+          messages: (
+            <section aria-labelledby="messages-title" className="rounded-xl border bg-surface p-6">
+              <h2 id="messages-title" className="mb-4 text-lg font-semibold">
+                Recent messages
+              </h2>
+              <GroupMessages
+                groupId={group.id}
+                initial={messagesResult.data as GroupMessageView[]}
+                timeZone={timeZone}
+              />
+            </section>
+          ),
+        }}
+      />
     </div>
   );
 }

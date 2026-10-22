@@ -1,6 +1,6 @@
 import {
-  BookOpen,
   CalendarClock,
+  GraduationCap,
   LayoutDashboard,
   ScrollText,
   Settings,
@@ -22,7 +22,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/", label: "Overview", icon: LayoutDashboard, ownerOnly: false },
   { href: "/groups", label: "Groups", icon: Users, ownerOnly: false },
   { href: "/schedule", label: "Reminders & announcements", icon: CalendarClock, ownerOnly: false },
-  { href: "/knowledge", label: "Knowledge", icon: BookOpen, ownerOnly: false },
+  { href: "/knowledge", label: "Training", icon: GraduationCap, ownerOnly: false },
   { href: "/authorized-users", label: "Authorized users", icon: ShieldCheck, ownerOnly: false },
   { href: "/connection", label: "Connection", icon: Smartphone, ownerOnly: true },
   { href: "/audit", label: "Audit log", icon: ScrollText, ownerOnly: false },

@@ -17,12 +17,12 @@
 | Database | **Supabase Postgres** with **pgvector** and full-text search | Relational data, hybrid search and session storage in one place. |
 | Auth (dashboard) | **Supabase Auth** (email + password, sign-ups disabled) via `@supabase/ssr` | Browser and server clients in `apps/dashboard/lib/supabase/`. `apps/dashboard/proxy.ts` (Next.js 16's replacement for `middleware.ts`) refreshes the session and redirects signed-out visitors to `/login`; it is an optimistic check only. `server/currentUser.ts` re-checks the `dashboard_users` role; a user with no row is sent to `/auth/signout?reason=no_access`. |
 | Realtime | **Supabase Realtime** | Dashboard sees worker status and pairing codes live; worker receives requests. |
-| AI (chat) | **OpenRouter**, default model Claude Haiku, fallback model configurable | Cheap, swappable models. |
+| AI (chat) | **OpenRouter**, called with `fetch` (no SDK). The company's own key and its chat and fallback models are set by the owner on the dashboard Settings page; the key lives in Supabase Vault (ADR-027). Suggested: a small Claude Haiku model, with a fallback from a different provider | Cheap, swappable models; a new company needs no server access to set its AI account. |
 | AI (embeddings) | Configurable via env; default `text-embedding-3-small` (1536 dims) `[DEFAULT]` | Needed for semantic search. Changing the model requires re-embedding. |
 | Validation | **zod** | Shared schemas for every boundary (`packages/shared/src/schemas/`). |
 | Time | **date-fns** + **date-fns-tz** (shared package) | Helpers in `packages/shared/src/time.ts`; the timezone is always an argument. |
 | Logging | **pino** (worker), structured JSON | Searchable logs on the host. Factory in `apps/worker/src/logger.ts` redacts secret-looking fields. `pnpm dev` pipes output through **pino-pretty** (dev dependency) for local reading; production output stays JSON. |
-| Tests | **Vitest** in every package; tests live next to the code as `*.test.ts` | Unit tests for parsing, permissions, scheduling. The dashboard runs Vitest with jsdom, `@vitejs/plugin-react` and Testing Library (`apps/dashboard/vitest.config.ts`, `vitest.setup.ts`). |
+| Tests | **Vitest** in every package; tests live next to the code as `*.test.ts` | Unit tests for parsing, permissions, scheduling. The dashboard runs Vitest with jsdom, `@vitejs/plugin-react` and Testing Library (`apps/dashboard/vitest.config.ts`, `vitest.setup.ts`). Next.js's `server-only` marker is aliased to an empty stub (`vitest.server-only.ts`) so server modules can be unit-tested. |
 | Lint / format | **ESLint 9** (type-aware `typescript-eslint` for worker and shared; Next's config for the dashboard) + **Prettier** | Root `eslint.config.mjs` serves worker and shared. Catches un-awaited promises, `any` and default exports. `pnpm format` / `pnpm format:check` at the root. |
 | Package manager | **pnpm** workspaces (pinned `pnpm@12.10.1`, Node 24) | Monorepo. Build scripts are allow-listed in the root `pnpm-workspace.yaml` (`allowBuilds`). |
 | Database tooling | **Supabase CLI** (root dev dependency `supabase`) | Migrations live in `supabase/migrations/`, numbered `0001_…` by concern, applied with `pnpm supabase db push`. `supabase/seed.sql` is not run by `db push`; the owner runs it once by hand in the SQL Editor. Extensions are installed in the `extensions` schema. |
@@ -70,14 +70,16 @@
 
 ```
  Dashboard (Vercel) ──► Supabase ◄── Worker (Railway/Fly) ──► WhatsApp (Baileys)
-        │                  ▲                │
-        │                  │                ├──► OpenRouter (chat + embeddings)
-        └── no direct ─────┘                └──► Resend (owner alert email)
-            connection to worker
+   │    │                  ▲                │
+   │    │                  │                ├──► OpenRouter (chat + embeddings)
+   │    └── no direct ─────┘                └──► Resend (owner alert email)
+   │        connection to worker
+   └──► OpenRouter (Settings only: key check + model list)
 ```
 
 1. **The dashboard never talks to the worker directly.** All coordination goes through Supabase tables and Realtime (`api-interfaces.md` §2). The worker exposes no public HTTP endpoints except an optional private `/healthz` for the host.
-2. **The dashboard reads through RLS** using the logged-in user's session, and writes through **server actions** that validate with zod and re-check the user's role. The service-role key is used in the dashboard **only** by `lib/supabase/admin.ts`, and that client is imported **only** by `server/audit.ts` to append `bot_actions` rows (dashboard roles cannot write the audit log, ADR-019). `SUPABASE_SERVICE_ROLE_KEY` must be set in `apps/dashboard/.env.local` and on Vercel.
+2. **The dashboard reads through RLS** using the logged-in user's session, and writes through **server actions** that validate with zod and re-check the user's role. The service-role key is used in the dashboard **only** by `lib/supabase/admin.ts`, and that client is imported **only** by `server/audit.ts` to append `bot_actions` rows (dashboard roles cannot write the audit log, ADR-019). `SUPABASE_SERVICE_ROLE_KEY` must be set in `apps/dashboard/.env.local` and on Vercel. The OpenRouter key is saved through the owner-checked `set_openrouter_key()` function with the owner's own session, not the service role (ADR-027).
+   The dashboard calls OpenRouter **only** from `server/openrouter.ts`, and only to check a key before saving it and to list models for the Settings page. It never sends chat requests.
 3. **The worker uses the Supabase service-role key** and is the only component that writes messages, session state, heartbeats and sent-status.
 4. **Inside the worker, modules talk through functions, not globals.** Only `whatsapp/` touches the Baileys socket. Only `ai/` calls OpenRouter. Only `db/` calls Supabase.
 5. **`packages/shared` has no runtime dependencies on either app.**
@@ -144,9 +146,6 @@ Implemented as the pure function `decideReconnect` in `whatsapp/reconnectPolicy.
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
 SESSION_ENCRYPTION_KEY        # 32-byte base64
-OPENROUTER_API_KEY
-OPENROUTER_CHAT_MODEL         # default: anthropic/claude-haiku (exact slug pinned in code)
-OPENROUTER_FALLBACK_MODEL
 EMBEDDINGS_API_KEY
 EMBEDDINGS_MODEL              # default: text-embedding-3-small
 RESEND_API_KEY                # owner alert email (required from 1.7)
@@ -161,7 +160,7 @@ NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY     # server-only, used sparingly in server actions
 ```
-The worker validates all variables with zod on boot (`apps/worker/src/env.ts`) and exits with a clear error listing every missing or invalid variable by name (never its value). Variables become **required in the task that first uses them** (ADR-024): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SESSION_ENCRYPTION_KEY` from task 1.1; `RESEND_API_KEY` and `OWNER_ALERT_EMAILS` from task 1.7; OpenRouter and embeddings variables from Phase 3. Until then they are optional but still format-checked when set. Empty values count as unset.
+The worker validates all variables with zod on boot (`apps/worker/src/env.ts`) and exits with a clear error listing every missing or invalid variable by name (never its value). Variables become **required in the task that first uses them** (ADR-024): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SESSION_ENCRYPTION_KEY` from task 1.1; `RESEND_API_KEY` and `OWNER_ALERT_EMAILS` from task 1.7; embeddings variables from Phase 4. The OpenRouter key and models are **not** environment variables: the owner sets them on the dashboard Settings page and the worker reads them from the database (ADR-027). Until then they are optional but still format-checked when set. Empty values count as unset.
 
 Locally the worker reads `apps/worker/.env` through Node's built-in `--env-file-if-exists` flag in its `dev` and `start` scripts (no `dotenv`). On the host, variables come from the platform and no file is needed.
 

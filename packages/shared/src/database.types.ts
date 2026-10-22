@@ -216,28 +216,37 @@ export type Database = {
       }
       company_settings: {
         Row: {
+          ai_chat_model: string | null
+          ai_fallback_model: string | null
           bot_display_name: string
           company_name: string
           created_at: string
           id: number
+          openrouter_key_hint: string | null
           owner_alert_phone: string | null
           timezone: string
           updated_at: string
         }
         Insert: {
+          ai_chat_model?: string | null
+          ai_fallback_model?: string | null
           bot_display_name?: string
           company_name: string
           created_at?: string
           id?: number
+          openrouter_key_hint?: string | null
           owner_alert_phone?: string | null
           timezone: string
           updated_at?: string
         }
         Update: {
+          ai_chat_model?: string | null
+          ai_fallback_model?: string | null
           bot_display_name?: string
           company_name?: string
           created_at?: string
           id?: number
+          openrouter_key_hint?: string | null
           owner_alert_phone?: string | null
           timezone?: string
           updated_at?: string
@@ -344,6 +353,7 @@ export type Database = {
           ai_enabled: boolean
           approved_at: string | null
           approved_by: string | null
+          bot_instructions: string | null
           created_at: string
           daily_reply_cap: number
           id: string
@@ -359,6 +369,7 @@ export type Database = {
           ai_enabled?: boolean
           approved_at?: string | null
           approved_by?: string | null
+          bot_instructions?: string | null
           created_at?: string
           daily_reply_cap?: number
           id?: string
@@ -374,6 +385,7 @@ export type Database = {
           ai_enabled?: boolean
           approved_at?: string | null
           approved_by?: string | null
+          bot_instructions?: string | null
           created_at?: string
           daily_reply_cap?: number
           id?: string
@@ -401,6 +413,7 @@ export type Database = {
           created_at: string
           embedding: string | null
           embedding_status: string
+          group_id: string
           id: string
           is_active: boolean
           title: string
@@ -413,6 +426,7 @@ export type Database = {
           created_at?: string
           embedding?: string | null
           embedding_status?: string
+          group_id: string
           id?: string
           is_active?: boolean
           title: string
@@ -425,6 +439,7 @@ export type Database = {
           created_at?: string
           embedding?: string | null
           embedding_status?: string
+          group_id?: string
           id?: string
           is_active?: boolean
           title?: string
@@ -433,6 +448,13 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "knowledge_entries_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "knowledge_entries_updated_by_fkey"
             columns: ["updated_by"]
@@ -734,6 +756,7 @@ export type Database = {
         Returns: boolean
       }
       check_worker_offline: { Args: never; Returns: undefined }
+      clear_openrouter_key: { Args: never; Returns: undefined }
       claim_due_posts: {
         Args: { p_claim_token: string; p_limit?: number }
         Returns: {
@@ -769,6 +792,18 @@ export type Database = {
         Returns: undefined
       }
       current_dashboard_role: { Args: never; Returns: string }
+      get_openrouter_key: { Args: never; Returns: string }
+      record_ai_usage: {
+        Args: {
+          p_cost_usd: number
+          p_group_id: string
+          p_input_tokens: number
+          p_output_tokens: number
+          p_replies?: number
+          p_usage_date: string
+        }
+        Returns: undefined
+      }
       search_group_history: {
         Args: {
           p_group_id: string
@@ -787,6 +822,7 @@ export type Database = {
       }
       search_knowledge: {
         Args: {
+          p_group_id: string
           p_limit?: number
           p_query_embedding: string
           p_query_text: string
@@ -798,6 +834,7 @@ export type Database = {
           title: string
         }[]
       }
+      set_openrouter_key: { Args: { p_key: string }; Returns: undefined }
     }
     Enums: {
       [_ in never]: never

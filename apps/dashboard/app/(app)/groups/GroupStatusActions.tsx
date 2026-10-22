@@ -16,7 +16,7 @@ import { GROUP_ACTION_LABELS } from "@/lib/groups";
 import { changeGroupStatus } from "@/server/actions/groups";
 
 const SUCCESS: Record<GroupAction, string> = {
-  approve: "Group approved. The bot starts storing its messages within 30 seconds.",
+  approve: "Group approved. Now add its training so the bot can answer there.",
   pause: "Group paused. Messages are still stored; the bot stays quiet.",
   resume: "Group resumed.",
   archive: "Group archived.",
@@ -31,7 +31,9 @@ function useGroupAction(groupId: string) {
       if (result.ok) {
         toast.success(SUCCESS[action]);
         onDone?.();
-        router.refresh();
+        // A new group needs training before the bot can answer: go straight to its Train tab.
+        if (action === "approve") router.push(`/groups/${groupId}?tab=train`);
+        else router.refresh();
       } else {
         toast.error(result.error);
       }

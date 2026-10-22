@@ -9,5 +9,6 @@ export type {
   TablesUpdate,
 } from "./database.types.ts";
 export * from "./groups.ts";
+export * from "./knowledgeImport.ts";
 export * from "./schemas/index.ts";
 export * from "./time.ts";

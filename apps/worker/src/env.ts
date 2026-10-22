@@ -3,7 +3,8 @@
 // the variable and the rule, never the value, so secrets cannot leak into logs.
 //
 // Variables are required by the task that first uses them (ADR-024): Supabase, the session key
-// and owner alert email now; OpenRouter and embeddings in Phase 3. Until then they are optional.
+// and owner alert email now; embeddings in Phase 4. The OpenRouter key and models are not
+// environment variables: the owner sets them on the dashboard Settings page (ADR-027).
 import { z } from "zod";
 
 const LOG_LEVELS = ["fatal", "error", "warn", "info", "debug", "trace", "silent"] as const;
@@ -43,9 +44,6 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: required(z.string({ error: "is required" }).min(1)),
   SESSION_ENCRYPTION_KEY: required(encryptionKeySchema),
 
-  OPENROUTER_API_KEY: optional(z.string()),
-  OPENROUTER_CHAT_MODEL: optional(z.string()),
-  OPENROUTER_FALLBACK_MODEL: optional(z.string()),
   EMBEDDINGS_API_KEY: optional(z.string()),
   EMBEDDINGS_MODEL: optional(z.string()).transform((value) => value ?? "text-embedding-3-small"),
 

@@ -7,6 +7,7 @@ import { DateTimeInCompanyTz } from "@/components/DateTimeInCompanyTz";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
 import { StatusBadge } from "@/components/StatusBadge";
+import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -56,12 +57,26 @@ const STATUS_ORDER: Record<GroupStatus, number> = {
 async function GroupsContent() {
   await requireCurrentUser();
   const supabase = await createClient();
-  const [groupsResult, settingsResult] = await Promise.all([
+  const [groupsResult, settingsResult, trainingResult] = await Promise.all([
     supabase.from("groups").select("id, name, status, reminder_permission, last_activity_at"),
     supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
+    supabase.from("knowledge_entries").select("group_id").eq("is_active", true),
   ]);
   if (groupsResult.error) throw new Error(`Could not load groups: ${groupsResult.error.message}`);
+  if (trainingResult.error) {
+    throw new Error(`Could not load training: ${trainingResult.error.message}`);
+  }
   const timeZone = settingsResult.data?.timezone ?? "UTC";
+  const trainedGroupIds = new Set(trainingResult.data.map((row) => row.group_id));
+  /** Live groups without active training: the bot only replies that it is not set up yet. */
+  const needsTraining = (group: GroupRow) =>
+    (group.status === "active" || group.status === "paused") && !trainedGroupIds.has(group.id);
+  const notTrained = (group: GroupRow) =>
+    needsTraining(group) && (
+      <Link href={`/groups/${group.id}?tab=train`} aria-label={`Train ${group.name}`}>
+        <Badge variant="outline">Not trained</Badge>
+      </Link>
+    );
 
   const groups = (groupsResult.data as GroupRow[]).sort(
     (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.name.localeCompare(b.name),
@@ -108,7 +123,10 @@ async function GroupsContent() {
                   </Link>
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={group.status} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status={group.status} />
+                    {notTrained(group)}
+                  </div>
                 </TableCell>
                 <TableCell>{REMINDER_PERMISSION_LABELS[group.reminder_permission]}</TableCell>
                 <TableCell>{lastActivity(group)}</TableCell>
@@ -129,7 +147,10 @@ async function GroupsContent() {
               <Link href={`/groups/${group.id}`} className="font-medium hover:underline">
                 {group.name}
               </Link>
-              <StatusBadge status={group.status} />
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <StatusBadge status={group.status} />
+                {notTrained(group)}
+              </div>
             </div>
             <p className="text-sm text-muted-foreground">
               Reminders: {REMINDER_PERMISSION_LABELS[group.reminder_permission]}

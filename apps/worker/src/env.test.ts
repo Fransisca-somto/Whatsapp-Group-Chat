@@ -28,7 +28,10 @@ describe("parseEnv", () => {
     expect(env.SUPABASE_URL).toBe(valid.SUPABASE_URL);
     expect(env.LOG_LEVEL).toBe("info");
     expect(env.EMBEDDINGS_MODEL).toBe("text-embedding-3-small");
-    expect(env.OPENROUTER_API_KEY).toBeUndefined();
+    // The OpenRouter key is set on the dashboard (ADR-027); a leftover variable is ignored.
+    expect(parseEnv({ ...valid, OPENROUTER_API_KEY: "sk-or-old" })).not.toHaveProperty(
+      "OPENROUTER_API_KEY",
+    );
   });
 
   it("lists every missing required variable at once", () => {

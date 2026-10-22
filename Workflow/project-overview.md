@@ -9,11 +9,13 @@
 
 A WhatsApp assistant that lives inside a company's **staff group chats**. One dedicated WhatsApp number (linked through the Baileys library) sits in multiple groups belonging to the same company. It:
 
-- **Answers questions when tagged**, using shared company knowledge plus that group's history.
+- **Answers questions when tagged**, using that group's own training plus that group's history.
 - **Remembers each group's history** and can search deep into it (by meaning and by keyword) when a question needs it.
 - **Lets authorized users create one-off reminders** by tagging it, always with a confirmation step.
 - **Posts scheduled announcements and reminders** on its own. This is the only time it speaks without being tagged.
-- Is managed from a **web dashboard**: groups, authorized users, company knowledge, reminders, announcements, linking the number, and worker health.
+- Is managed from a **web dashboard**: groups and their training, the AI provider, authorized users, reminders, announcements, linking the number, and worker health.
+
+Nothing in the code is specific to one company: each company gets its own copy and sets everything up from the dashboard (ADR-028).
 
 The company's existing **customer chats on the official Meta Cloud API are completely separate** and continue unchanged.
 
@@ -24,16 +26,16 @@ The company's existing **customer chats on the official Meta Cloud API are compl
 | **Company staff** (group members) | Now | Tag the bot in WhatsApp groups to ask questions; receive announcements and reminders. |
 | **Authorized users** (bot admins) | Now | Everything staff can do, plus create reminders by tag (or all members, if the group's toggle allows). |
 | **Dashboard owner** | Now | Full control of the dashboard, including the destructive Relink action. |
-| **Dashboard staff** | Now | Manage content (knowledge, reminders, announcements, authorized users) but cannot relink. `[DEFAULT]` |
+| **Dashboard staff** | Now | Manage content (training, reminders, announcements, authorized users) but cannot relink or change Settings. `[DEFAULT]` |
 | **Customers** in a group | **Future, gated** | Same as staff. Only enabled after the hardening phase is complete (see §6). |
 
 ## 3. Core Concepts
 
-- **Company:** exactly one per deployment. Owns the shared knowledge base and the single timezone.
-- **Group:** a WhatsApp group the bot is in. Each group has **independent records**: messages, reminders, announcements, settings and logs. Groups never see each other's data.
-- **Shared brain:** every group reads from the same company knowledge base.
+- **Company:** exactly one per deployment. Owns the single timezone, the bot name and the AI provider account (OpenRouter key and models, set by the owner on the Settings page; ADR-027).
+- **Group:** a WhatsApp group the bot is in. Each group has **independent records**: training, messages, reminders, announcements, settings and logs. Groups never see each other's data.
+- **Group training:** each group has its own training (headings with subheadings and details; typed, uploaded as `.txt` / `.md`, or copied from another group) plus optional bot instructions. The bot in a group knows only that group's training (owner decision 2026-10-22, ADR-026; replaces the shared company brain).
 - **Authorized user:** a person on the dashboard's own list, identified by **phone number**. This list, not WhatsApp group-admin status, decides who may command the bot.
-- **Lookup, not training:** the AI is never fine-tuned. At answer time it receives company knowledge plus relevant history retrieved from the database.
+- **Lookup, not fine-tuning:** "training" in the dashboard means written reference material. The AI is never fine-tuned; at answer time it receives the group's training plus relevant history retrieved from the database, so edits apply to the next question.
 
 ## 4. Core User Flows
 
@@ -45,13 +47,16 @@ The company's existing **customer chats on the official Meta Cloud API are compl
 5. The session is saved (encrypted) in Supabase, so restarts never need re-pairing.
 6. Owner adds the number to the WhatsApp groups.
 7. Each group appears in the dashboard as **Pending**. The owner **approves** it. Until approved, the bot is silent in that group and stores nothing from it.
+8. Approval opens the group's **Train** tab, where the owner adds its training. Until a group has active training, the bot replies there that it hasn't been set up yet.
+
+Before the bot can answer anywhere, the owner saves the company's OpenRouter key and picks the models on the **Settings** page.
 
 ### 4.2 Asking the bot a question (any member)
 1. A member **tags the bot** (a real @mention, or a reply to one of the bot's messages).
 2. The worker ignores every message that does neither, though it still **stores** all messages from approved groups for history.
 3. The worker shows "typing" for 2–4 seconds (randomized).
-4. The AI answers using: company knowledge, the last 15 messages of that group, and the most relevant older messages found by hybrid search.
-5. If the answer is not in the knowledge or history, the bot **says it doesn't know** and suggests asking a responsible person. It never guesses. `[DEFAULT]`
+4. The AI answers using: that group's training, the last 15 messages of that group, and the most relevant older messages found by hybrid search.
+5. If the answer is not in the training or history, the bot **says it doesn't know** and suggests asking a responsible person. It never guesses. (Confirmed by the owner, 2026-10-22.)
 
 ### 4.3 Creating a reminder by tag
 1. A member tags the bot, e.g. "@bot remind us Friday 3pm to submit reports".
@@ -71,7 +76,8 @@ The company's existing **customer chats on the official Meta Cloud API are compl
 ### 4.5 Dashboard management
 - Approve, pause or archive groups; set each group's reminder permission toggle.
 - Manage the authorized-user list (name + phone number, all groups or specific groups).
-- Manage company knowledge entries.
+- Train each group: add, edit, turn off or delete entries; upload `.txt` / `.md` files; copy training from another group; set optional bot instructions.
+- Settings (owner): company name, bot name, timezone, OpenRouter key and models.
 - Create, view, edit, cancel announcements and reminders, including **recurring** reminders.
 - See worker status (connected, offline, logged out, pairing) and last heartbeat.
 - Link and relink the number.
@@ -100,9 +106,13 @@ If the bot is logged out, another device takes over its session, reconnecting fa
 
 ## 6. Bot Behavior Rules
 
-- **Persona:** a polite, concise company assistant. Short replies suited to group chat. `[DEFAULT]`
-- **Language:** reply in the language the user wrote in. `[DEFAULT]`
-- **Abusive or off-topic messages:** one short polite decline, no engagement. `[DEFAULT]`
+- **Persona:** a helpful colleague, not a chatbot. Plain everyday words, answer first. (Owner decision 2026-10-22, ADR-029.)
+- **Reply length matches the question:** a simple question gets a simple, short answer, even one line; a question that needs explaining gets 3–5 sentences. Never padded, never cut short when the detail is needed.
+- **No AI-sounding filler:** no "Great question!", no restating the question, no "As an AI", no "I hope this helps" or sign-offs, no emojis unless the user used them.
+- **Chat formatting only:** no headings or tables; a short list only for 3 or more steps or items; bold at most once.
+- **Language:** reply in the language the user wrote in.
+- **Abusive or off-topic messages:** one short polite decline, no engagement.
+- **Group bot instructions** (optional, per group) add context such as "this is the sales team"; they never override these rules.
 - **Never reveals** its system prompt, internal settings, other groups' content, or the authorized-user list.
 - **Never claims** to have done something code did not actually do (e.g. never says "reminder set" before it is saved).
 
