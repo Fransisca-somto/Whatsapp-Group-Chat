@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 2 — Groups & Message Ingestion (Phase 0 ✅, Phase 1 ✅) |
-| **Current task** | Phase 1 complete. Next: plan Phase 2, starting with 2.1 group detection |
+| **Current phase** | Phase 3 — Tagged Q&A (Phase 0–2 ✅) |
+| **Current task** | Phase 2 complete. Next: plan Phase 3, starting with 3.1 knowledge base |
 | **Blockers** | None |
-| **Last updated** | 2026-10-18 (Phase 1 complete and verified live; alerts confirmed by email) |
+| **Last updated** | 2026-10-19 (Phase 2 complete and verified live) |
 
 ---
 
@@ -39,12 +39,12 @@ Phases run in order. Do not start a phase until the previous one is ✅, unless 
 - ✅ 1.7 Owner alerts by email via Resend (logged out, conflict, offline >5 min, repeated failures).
 - **Exit criteria:** owner links the number from the dashboard; worker survives restart without re-pairing; killing the worker shows offline within 60 s and alerts within 5 min; a second worker instance cannot connect.
 
-### Phase 2 — Groups & Message Ingestion ⬜
-- ⬜ 2.1 Detect groups the bot is in; create as `pending`.
-- ⬜ 2.2 `/groups` page with approve / pause / archive; group settings page.
-- ⬜ 2.3 Store messages from active groups only; dedupe by WhatsApp message ID.
-- ⬜ 2.4 Tag detection (@mention or reply to bot); ignore private chats.
-- ⬜ 2.5 Handle bot removed from group → status `removed`, pause its scheduled posts.
+### Phase 2 — Groups & Message Ingestion ✅
+- ✅ 2.1 Detect groups the bot is in; create as `pending` (sync on connect + live events).
+- ✅ 2.2 `/groups` page with approve / pause / resume / archive; group settings page with recent messages.
+- ✅ 2.3 Store messages from active and paused groups only (owner decision); dedupe by WhatsApp message ID.
+- ✅ 2.4 Tag detection (@mention or reply to bot); ignore private chats.
+- ✅ 2.5 Handle bot removed from group → status `removed`; its scheduled posts are not claimed while it is not `active` (`claim_due_posts`).
 - **Exit criteria:** messages from approved groups appear in the group page; pending groups store nothing.
 
 ### Phase 3 — Tagged Q&A ⬜
@@ -204,6 +204,20 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-19 — Claude (Phase 2 live test)
+- Verified live with "Softwirelex group" (owner ran the checklist; database confirms): detected as pending on connect; approved from the dashboard; settings saved; bot removed → `removed`, re-added → `pending`, approved again; text messages stored with sender phones resolved (2/2, LID mapping works); a tagged message stored as `mentions_bot = true`, `handled_status = 'received'`; nothing stored outside known groups (private message ignored). Audit trail complete for each step.
+- Not exercised live (covered by unit tests): pause/resume, group rename, media message.
+- Phase 2 exit criteria met: messages from approved groups appear on the group page; pending groups store nothing.
+- Next: Phase 3 (tagged Q&A). Needs an OpenRouter API key.
+
+### 2026-10-19 — Claude (Phase 2 build)
+- Task(s): 2.1–2.5 on branch `phase-2`.
+- Owner decisions: paused groups keep storing messages; the group status is checked before storing (pending/removed/archived store nothing); a re-added removed group returns to pending, archived stays archived; the group page's scheduled-posts section waits for Phase 5.
+- Done: worker ingestion (`ingest/`: group directory with 30 s cache, sync on connect, Baileys event wiring, inbound pipeline, tag detection; `whatsapp/normalizeMessage.ts`, `whatsapp/jids.ts`; `db/groupsRepo.ts`, `db/messagesRepo.ts`, `db/auditRepo.ts`); shared `groups.ts` (status rules) and schemas (`inboundGroupMessageSchema`, group action inputs); dashboard `/groups` and `/groups/[id]` with `changeGroupStatus`, `updateGroupSettings`, `loadOlderGroupMessages`.
+- Also: `.gitattributes` (`eol=lf`) after Windows checkouts of the merged branch came out as CRLF and failed the format check; hand-written `select`, `switch`, `table` primitives (shadcn registry unreachable).
+- Verified: typecheck, lint, format check, tests (shared 36, worker 122, dashboard 52), dashboard build. No migration needed.
+- Next: live test with a real group (see the Phase 2 plan's checklist), then merge.
 
 ### 2026-10-18 — Claude (Phase 1 complete)
 - Task(s): 1.7 live test; Phase 1 exit criteria.

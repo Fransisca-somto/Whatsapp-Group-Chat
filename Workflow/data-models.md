@@ -79,7 +79,7 @@ Editing `title` or `content` resets `embedding_status = 'pending'`.
 | approved_at | timestamptz | |
 | last_activity_at | timestamptz | |
 
-Only `active` groups have messages stored and get replies. `paused` groups store messages but the bot does not reply or post.
+`active` and `paused` groups have messages stored (owner decision, 2026-10-19); only `active` groups get replies and posts. `pending`, `removed` and `archived` groups store nothing. The worker sets `pending` (new or re-added group) and `removed` (bot left); the dashboard moves groups only along the transitions in `packages/shared/src/groups.ts` (approve, pause, resume, archive).
 
 ### 3.5 `authorized_users`
 | Column | Type | Notes |

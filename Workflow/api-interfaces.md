@@ -56,9 +56,9 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 
 | Action | Role | Input schema | Audit |
 |---|---|---|---|
-| `approveGroup` | owner, staff | `{ groupId }` | ✅ |
-| `updateGroupSettings` | owner, staff | `GroupSettingsInput { groupId, reminderPermission, aiEnabled, dailyReplyCap, retentionDays }` | ✅ |
-| `setGroupStatus` | owner, staff | `{ groupId, status: 'active'\|'paused'\|'archived' }` | ✅ |
+| `changeGroupStatus` | owner, staff | `ChangeGroupStatusInput { groupId, action: 'approve'\|'pause'\|'resume'\|'archive' }`. Allowed only along `groupActionTarget()` (shared `groups.ts`); the update is conditional on the status read (`eq('status', current)`), so concurrent clicks cannot skip a step. Approve also sets `approved_by` / `approved_at`. Replaces the earlier `approveGroup` + `setGroupStatus`. | ✅ `group_approved` / `group_paused` / `group_resumed` / `group_archived` (detail `from`, `to`) |
+| `updateGroupSettings` | owner, staff | `UpdateGroupSettingsInput { groupId, reminderPermission, aiEnabled, dailyReplyCap, retentionDays }` | ✅ `group_settings_updated` |
+| `loadOlderGroupMessages` | owner, staff | `LoadGroupMessagesInput { groupId, before }` (ISO timestamp); read-only, 50 per page through RLS | — |
 | `upsertKnowledgeEntry` | owner, staff | `{ id?, title, content, isActive }` | — |
 | `deleteKnowledgeEntry` | owner, staff | `{ id }` | — |
 | `upsertAuthorizedUser` | owner, staff | `{ id?, displayName, phoneE164, allGroups, groupIds[], isActive }` | ✅ |
@@ -81,9 +81,12 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 |---|---|---|
 | `connection.update` | `whatsapp/connection.ts` | Status changes, QR/pairing state, reconnect policy (`architecture.md` §7). |
 | `creds.update` | `whatsapp/authState.ts` | Persist creds immediately. |
-| `messages.upsert` | `ingest/onMessage.ts` | For `type = 'notify'` only. Group messages → ingest pipeline. Non-group → ignore. |
-| `groups.upsert` / `groups.update` | `ingest/onGroups.ts` | Create `pending` group or update name. |
-| `group-participants.update` | `ingest/onGroups.ts` | If the bot is removed → group `removed`, audit. |
+| `messages.upsert` | `ingest/ingest.ts` → `ingest/handleInbound.ts` | For `type = 'notify'` only. Group messages → ingest pipeline. Non-group → ignore. |
+| `groups.upsert` / `groups.update` | `ingest/ingest.ts` → `ingest/groupDirectory.ts` | Create `pending` group, re-add a `removed` one as `pending`, or update the name. |
+| `group-participants.update` | `ingest/ingest.ts` | Only when the bot is a participant (matched by JID, LID or phone): `remove` → group `removed`; `add` → fetch metadata, register as `pending`. |
+| connection `open` | `ingest/groupSync.ts` | `groupFetchAllParticipating()` and reconcile: new → `pending`, renamed → update, removed live group → `removed`, re-added → `pending`. Catches changes made while the worker was offline. |
+
+**Worker audit actions** (`actor_type = 'system'`): `group_detected`, `group_renamed` (detail `previousName`), `group_readded`, `group_removed` (detail `reason`, `previousStatus`).
 
 ### 4.2 Normalized inbound message (`InboundGroupMessage`)
 ```ts
@@ -102,7 +105,7 @@ type InboundGroupMessage = {
   isFromBot: boolean;
 };
 ```
-**Tag detection:** `mentionedJids` includes the bot's JID or LID, **or** `quotedIsFromBot` is true.
+**Tag detection:** `mentionedJids` includes the bot's JID or LID, **or** the quoted message's sender (`quotedParticipantJid`) is the bot. Device suffixes are ignored. The bot's own messages are never tags. Implemented: `whatsapp/normalizeMessage.ts` (raw → normalized, skips reactions, deletes, edits, stubs and private chats), `whatsapp/jids.ts` (phone resolution: sender JID → `participantAlt` → Baileys LID→PN mapping → null), `ingest/detectTag.ts`. The schema is `inboundGroupMessageSchema` in `packages/shared` (it carries `quotedParticipantJid` instead of `quotedIsFromBot`).
 
 ### 4.3 Outbound (`whatsapp/sendQueue.ts`)
 ```ts
