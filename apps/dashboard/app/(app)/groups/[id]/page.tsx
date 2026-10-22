@@ -7,7 +7,13 @@ import { Suspense } from "react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { GROUP_MESSAGE_COLUMNS, GROUP_MESSAGES_PAGE, type GroupMessageView } from "@/lib/groups";
+import {
+  GROUP_MESSAGE_COLUMNS,
+  GROUP_MESSAGES_PAGE,
+  GROUP_TABS,
+  type GroupMessageView,
+  type GroupTab,
+} from "@/lib/groups";
 import { createClient } from "@/lib/supabase/server";
 import { TRAINING_COLUMNS, type TrainingEntryView, type TrainingSourceGroup } from "@/lib/training";
 import { requireCurrentUser } from "@/server/currentUser";
@@ -15,7 +21,7 @@ import { requireCurrentUser } from "@/server/currentUser";
 import { GroupStatusActions } from "../GroupStatusActions";
 import { GroupMessages } from "./GroupMessages";
 import { GroupSettingsForm } from "./GroupSettingsForm";
-import { GROUP_TABS, GroupTabs, type GroupTab } from "./GroupTabs";
+import { GroupTabs } from "./GroupTabs";
 import { TrainTab } from "./TrainTab";
 
 type Props = {

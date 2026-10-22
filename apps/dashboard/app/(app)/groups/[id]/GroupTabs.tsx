@@ -3,9 +3,7 @@
 import type * as React from "react";
 
 import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs";
-
-export const GROUP_TABS = ["settings", "train", "messages"] as const;
-export type GroupTab = (typeof GROUP_TABS)[number];
+import { GROUP_TABS, type GroupTab } from "@/lib/groups";
 
 const LABELS: Record<GroupTab, string> = {
   settings: "Settings",
