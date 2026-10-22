@@ -10,8 +10,8 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 3 — Tagged Q&A (Phase 0–2 ✅) |
-| **Current task** | 3.0 and 3.1 built on branch `phase-3` (plan: `Workflow/Phases/05-Tagged-QA.md`). Next: owner applies migration 0009 and tries Settings and the Train tab; then 3.2 |
-| **Blockers** | Migration 0009 must be applied by the owner (`pnpm supabase db push`) before the new screens work against the database |
+| **Current task** | 3.0 and 3.1 built on branch `phase-3` (plan: `Workflow/Phases/05-Tagged-QA.md`); migration 0009 applied. Next: owner tries Settings and the Train tab; then 3.2 |
+| **Blockers** | None |
 | **Last updated** | 2026-10-22 (3.0 settings and 3.1 per-group training built) |
 
 ---
@@ -225,7 +225,8 @@ Newest first. One entry per working session.
   - Dashboard: Settings page (`CompanySettingsForm`, `AiProviderForm`, `server/actions/settings.ts`, `server/openrouter.ts`); group page tabs (Settings · Train · Messages) with `TrainTab`, `TrainingEntryDialog`, `ImportTrainingDialog`, copy and bot-instructions forms (`server/actions/knowledge.ts`); approval lands on the Train tab; Not trained marker on `/groups`; `/knowledge` is now the Training overview (sidebar "Training"); "AI not configured" notice on Overview; `tabs` and `textarea` primitives; Vitest stub for Next's `server-only`.
   - Worker: `OPENROUTER_*` removed from `env.ts`. Root: `.env.example`, template `seed.sql`, new `README.md`.
 - Verified: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (shared 56, worker 122, dashboard 78), `pnpm --filter dashboard build`. OpenRouter endpoints checked live: `GET /api/v1/key` returns 401 for a bad key; `GET /api/v1/models` lists 468 models (including `anthropic/claude-haiku-5.5`).
-- **Not done / needs the owner:**
+- **Update (same day):** the owner ran `pnpm supabase db push` (0009 applied) and regenerated `database.types.ts`; the generated file matched the hand edit except for the position of one line. Checked with the service role: the new `company_settings` columns, `knowledge_entries.group_id`, `groups.bot_instructions` and `get_openrouter_key()` (returns null, no key yet) all exist.
+- **Originally not done / needed the owner:**
   - `pnpm supabase db push` for migration 0009 was blocked by the agent's permission check; the owner must run it.
   - `packages/shared/src/database.types.ts` was updated **by hand** to match 0009 so the code could be type-checked. After the push, regenerate it (`pnpm supabase gen types typescript --linked > packages/shared/src/database.types.ts`) and confirm `git diff` shows no real change.
   - Not tried live yet: Settings save, key check and save, models save, Train tab (type, upload, copy, instructions), approval redirect.

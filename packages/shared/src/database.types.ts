@@ -756,7 +756,6 @@ export type Database = {
         Returns: boolean
       }
       check_worker_offline: { Args: never; Returns: undefined }
-      clear_openrouter_key: { Args: never; Returns: undefined }
       claim_due_posts: {
         Args: { p_claim_token: string; p_limit?: number }
         Returns: {
@@ -787,6 +786,7 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      clear_openrouter_key: { Args: never; Returns: undefined }
       configure_alert_email: {
         Args: { p_api_key: string; p_from: string; p_recipients: string[] }
         Returns: undefined
