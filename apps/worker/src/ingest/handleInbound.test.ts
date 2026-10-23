@@ -113,7 +113,11 @@ describe("inbound group messages", () => {
     expect(t.onTagged).toHaveBeenCalledWith(
       expect.objectContaining({ waMessageId: "M1", quotedWaMessageId: "BOTMSG" }),
       expect.objectContaining({ id: "g1" }),
+      expect.anything(),
     );
+    // The raw message is passed on so the reply can quote it.
+    const rawArgument = t.onTagged.mock.calls[0]?.[2] as WAMessage | undefined;
+    expect(rawArgument?.key.id).toBe("M1");
   });
 
   it("stores the bot's own messages without treating them as tags", async () => {

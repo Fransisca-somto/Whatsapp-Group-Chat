@@ -72,13 +72,13 @@ export function ConnectionPanel({
   initialRequest,
   timeZone,
 }: ConnectionPanelProps) {
-  const { row, now } = useWorkerConnection(initialConnection);
+  const { row, readFailed, now } = useWorkerConnection(initialConnection);
   const request = useLatestPairingRequest(initialRequest);
   const [pending, startTransition] = useTransition();
   const [relinkOpen, setRelinkOpen] = useState(false);
   const [relinkPhone, setRelinkPhone] = useState("");
 
-  const displayStatus = workerDisplayStatus(row, now);
+  const displayStatus = workerDisplayStatus(row, now, readFailed);
   const rawStatus = row?.status ?? "not_linked";
   const lastSeen = formatLastSeen(secondsSinceHeartbeat(row, now));
   const hasOpenRequest = request !== null && OPEN.has(request.status);

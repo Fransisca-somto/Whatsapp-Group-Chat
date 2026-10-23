@@ -38,7 +38,7 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 | pairing / pending / scheduled | `--status-info` (blue) | Waiting, in progress |
 | late / delivery uncertain / paused | `--status-warn` (amber) | Needs attention |
 | offline / logged out / failed / removed | `--status-error` (red) | Broken |
-| cancelled / skipped / archived | `--status-neutral` (gray) | Inactive |
+| cancelled / skipped / archived / unknown | `--status-neutral` (gray) | Inactive, or the dashboard could not read the status |
 
 ### 2.3 Typography
 
@@ -64,31 +64,33 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 └──────────┴────────────────────────────────────┘
 ```
 
-**Sidebar navigation (in this order):** Overview · Groups · Reminders & Announcements · Knowledge · Authorized Users · Connection · Audit Log · Settings.
+The window itself never scrolls: the app shell is exactly the screen's height, and the sidebar and the page area (`<main data-page-scroll>`) each scroll on their own. The top bar and sidebar therefore never move, and a page can fill the screen (the group chat measures itself against `data-page-scroll`).
+
+**Sidebar navigation (in this order):** Overview · Groups · Reminders & Announcements · Training · Authorized Users · Connection · Audit Log · Settings. ("Training" was "Knowledge" until 2026-10-22; its route is still `/knowledge`.)
 
 ## 4. Pages
 
 | Route | Purpose | Key elements |
 |---|---|---|
-| `/` Overview | At-a-glance health | Worker status card, groups count, next 5 scheduled posts, items needing attention (late, uncertain, skipped). |
-| `/groups` | Group list | Table: name, status, reminder permission, last activity. Pending groups pinned on top with Approve button. |
-| `/groups/[id]` | One group | Settings (permission toggle, AI on/off, retention days, daily cap), scheduled posts for this group, recent messages (read-only). |
+| `/` Overview | At-a-glance health | "AI not configured" notice until a key and chat model are saved (built). Worker status card, groups count, next 5 scheduled posts, items needing attention (late, uncertain, skipped). |
+| `/groups` | Group list | Table: name, status, reminder permission, last activity. Pending groups pinned on top with Approve button. Active and paused groups with no active training show a **Not trained** badge linking to their Train tab. Approving a group opens its Train tab. |
+| `/groups/[id]` | One group | Tabs **Settings · Train · Messages**, kept in `?tab=`. Settings: permission toggle, AI on/off, retention days, daily cap. Train: the group's training entries (add, edit, turn off, delete; upload `.txt` / `.md`; copy from another group) and optional bot instructions. Messages: a read-only **chat view** that fills the screen below the tabs, so only the messages scroll (header with the group name and "Read-only view of the group chat"; a disabled message box at the bottom, "Replies are sent by the bot in WhatsApp"; oldest at the top, opens scrolled to the newest; staff bubbles on the left, the bot's on the right in a tinted bubble under its Settings name; sender name once per run; day dividers; time of day in each bubble; bot mentions shown as "@<bot name>"; bot replies show a quote of the question; @ icon on tagged messages; "Load older" at the top keeps the reader's place). Scheduled posts for this group arrive in Phase 5. |
 | `/schedule` | Reminders & announcements | Tabs: Upcoming · Needs attention · History. Create button opens form (group, kind, text, date/time, recurrence). |
-| `/knowledge` | Company knowledge | List + editor (title, content, active toggle). Shows "embedding pending" until processed. |
+| `/knowledge` | Training overview | One card per group (not archived): entries in use, entries turned off, last edit, **Not trained** badge; each links to the group's Train tab. Training is edited only on the group page (ADR-026). |
 | `/authorized-users` | Bot admin list | Table: name, phone (E.164), scope (all groups / specific), active. |
 | `/connection` | Pairing & relink | Current number, status, last heartbeat, Link / Relink button, pairing code display with countdown, re-admission checklist after relink. Owner only. |
-| `/audit` | Bot action log | Filterable table: time, group, actor, action, result. |
-| `/settings` | Company settings | Company name, timezone, owner alert phone. Owner only. |
+| `/audit` | Bot action log | Built. Filters for group and action (kept in `?group=` / `?action=`); table of time, group, who (dashboard user name, member phone, or System), action and a one-line result (e.g. "answered · 412 tokens", "tried to change the rules"); 50 per page with "Load older"; cards on mobile. Labels and summaries in `lib/audit.ts`. |
+| `/settings` | Company and AI provider | **Company:** company name, bot name, timezone (type-to-search list). **AI provider:** OpenRouter key (password field; after saving only "ends in …abcd" with Replace and Remove), chat model and optional fallback model (type-to-search list of OpenRouter models with prices). Owner only. |
 
 ## 5. Component Conventions
 
 - Use **shadcn/ui primitives** from `components/ui/` for all basics (Button, Input, Dialog, Table, Tabs, Switch, Select, Badge, Toast). Do not build parallel versions.
-- Installed primitives: badge, button, dialog, dropdown-menu, input, label, select, sheet, skeleton, switch, table. `select`, `switch` and `table` were hand-written in shadcn's Base UI style (2026-10-19) because the shadcn registry was unreachable; `<Select>` takes `items` (value → label) so the trigger shows the label. Generated files must import `cn` from `@/lib/utils` (newer shadcn templates import a separate `cn` npm package; we do not add it) and may only use button sizes our `button.tsx` defines.
+- Installed primitives: badge, button, dialog, dropdown-menu, input, label, select, sheet, skeleton, switch, table, tabs, textarea. `select`, `switch` and `table` (2026-10-19), and `tabs` and `textarea` (2026-10-22), were hand-written in shadcn's Base UI style (2026-10-19) because the shadcn registry was unreachable; `<Select>` takes `items` (value → label) so the trigger shows the label. Generated files must import `cn` from `@/lib/utils` (newer shadcn templates import a separate `cn` npm package; we do not add it) and may only use button sizes our `button.tsx` defines.
 - Shared app components live in `components/` and must be listed here (✅ = built):
 
 | Component | Purpose |
 |---|---|
-| `<WorkerStatus />` ✅ | Live connection indicator (Realtime). Dot + label + "last seen Xs ago" (label hidden below `lg`). In the `<AppShell>` top bar. Data from `lib/useWorkerConnection.ts`; offline rule in `lib/workerStatus.ts`. |
+| `<WorkerStatus />` ✅ | Live connection indicator (Realtime, plus a re-read every 30 s). Dot + label + "last seen Xs ago" (label hidden below `lg`). If the latest read failed, or the row is not visible (e.g. an expired login token), it shows **Unknown** · "Can't check right now", never a false Offline. Realtime events with an empty record are ignored and trigger a re-read. In the `<AppShell>` top bar. Data from `lib/useWorkerConnection.ts`; offline rule in `lib/workerStatus.ts`. |
 | `<StatusBadge status=... />` ✅ | The only way to render statuses. Maps status → color token and label. |
 | `<ConfirmDialog />` ✅ | Required for every destructive action. Optional `confirmWord` (relink uses `RELINK`), extra fields as children, `canConfirm` for extra validation; cannot be closed while `pending`. |
 | `<DateTimeInCompanyTz />` ✅ | Displays any timestamp in the company timezone. |
@@ -97,7 +99,9 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 | `<PairingCodeCard />` ✅ | Large monospace code shown as `ABCD-1234`, expiry countdown, linking steps, Cancel (open request) and Retry (expired / failed / cancelled). |
 | `<EmptyState />` ✅ | Icon, one-line explanation, primary action. |
 | `<PageHeader />` ✅ | Page title, optional description, actions on the right. |
-| Group pages ✅ | `/groups` (table on desktop, cards on mobile; pending pinned first with `ApproveGroupButton`), `/groups/[id]` (`GroupStatusActions` with archive confirmation, `GroupSettingsForm`, `GroupMessages` newest-first with "Load older" and a "Tagged" marker). Labels in `lib/groups.ts`. |
+| Group pages ✅ | `/groups` (table on desktop, cards on mobile; pending pinned first with `ApproveGroupButton`), `/groups/[id]` (`GroupStatusActions` with archive confirmation, `GroupTabs`, `GroupSettingsForm`, `GroupMessages` chat view, see `/groups/[id]` above). Labels in `lib/groups.ts`. |
+| Training ✅ | `TrainTab` (entry list with preview, subheading count, on/off switch, edit, delete with confirmation; Copy from group; bot instructions box), `TrainingEntryDialog` (heading plus repeatable subheading + details fields, character counter, 8,000 limit), `ImportTrainingDialog` (pick `.txt` / `.md` ≤ 200 KB, review the split with tick boxes and warnings, then save). Shapes and previews in `lib/training.ts`. |
+| Settings ✅ | `CompanySettingsForm`, `AiProviderForm` (key section never shows the saved key; models section disabled when OpenRouter's list can't be loaded). |
 | `<AppShell />` ✅ | Top bar (logo, page title, worker-status slot, `<UserMenu />`) plus `<Sidebar />`; the sidebar becomes a drawer on mobile. Items come from `components/navItems.ts`; owner-only items are hidden for staff. |
 
 - **Forms:** react-hook-form + zod schemas imported from `packages/shared`. Inline field errors under the input. Submit buttons show a spinner and are disabled while pending.

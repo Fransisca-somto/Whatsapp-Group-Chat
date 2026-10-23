@@ -42,3 +42,17 @@ describe("last seen", () => {
     expect(formatLastSeen(200_000)).toBe("2 d ago");
   });
 });
+
+describe("workerDisplayStatus when the dashboard cannot read the status", () => {
+  it("shows unknown instead of a false offline", () => {
+    const now = Date.parse("2026-10-23T00:00:00Z");
+    expect(workerDisplayStatus(null, now, true)).toBe("unknown");
+    expect(
+      workerDisplayStatus(
+        { status: "connected", last_heartbeat_at: "2026-10-22T23:00:00Z" },
+        now,
+        true,
+      ),
+    ).toBe("unknown");
+  });
+});

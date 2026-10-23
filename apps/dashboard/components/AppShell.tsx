@@ -36,8 +36,11 @@ export function AppShell({ user, children }: AppShellProps) {
   const pageTitle = NAV_ITEMS.find((item) => isNavItemActive(item, pathname))?.label ?? "";
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b bg-surface px-4">
+    // Pinned to the browser window (fixed, edge to edge): the window's own scrolling can never
+    // move it. The sidebar and the page content scroll on their own, so the top bar and sidebar
+    // always stay in place and pages can fill the screen (the group chat).
+    <div className="fixed inset-0 flex flex-col overflow-hidden">
+      <header className="z-40 flex h-14 shrink-0 items-center gap-3 border-b bg-surface px-4">
         <button
           type="button"
           className="rounded-md p-2 hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none md:hidden"
@@ -69,11 +72,11 @@ export function AppShell({ user, children }: AppShellProps) {
         </SheetContent>
       </Sheet>
 
-      <div className="flex flex-1">
-        <aside className="hidden w-60 shrink-0 border-r bg-surface md:block">
+      <div className="flex min-h-0 flex-1">
+        <aside className="hidden w-60 shrink-0 overflow-y-auto border-r bg-surface md:block">
           <SidebarNav role={user.role} />
         </aside>
-        <main className="min-w-0 flex-1 p-4 md:p-8">
+        <main data-page-scroll className="min-w-0 flex-1 overflow-y-auto p-4 md:p-8">
           <div className="mx-auto max-w-6xl">{children}</div>
         </main>
       </div>

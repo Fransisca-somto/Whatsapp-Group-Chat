@@ -1,24 +1,30 @@
 // Worker boot (architecture.md §2): validate env, start logging, take the leader lock, then
 // start leader-only modules: session state, the WhatsApp connection, the pairing watcher, the
-// heartbeat, owner alerts and group/message ingestion.
+// heartbeat, owner alerts, group/message ingestion and the assistant that answers tags.
 import { randomUUID } from "node:crypto";
+
+import { createOpenRouterClient } from "./ai/openrouter.ts";
+import { createAssistant } from "./assistant/pipeline.ts";
+import { cachedAiSettings, createAiSettingsRepo } from "./db/aiSettingsRepo.ts";
 
 import { createAlertsRepo } from "./db/alertsRepo.ts";
 import { createAuditRepo } from "./db/auditRepo.ts";
 import { createAuthStateRepo } from "./db/authStateRepo.ts";
 import { createConnectionRepo } from "./db/connectionRepo.ts";
 import { createGroupsRepo } from "./db/groupsRepo.ts";
+import { createKnowledgeRepo } from "./db/knowledgeRepo.ts";
 import { createLockRepo } from "./db/lockRepo.ts";
 import { createMessagesRepo } from "./db/messagesRepo.ts";
 import { createPairingRepo } from "./db/pairingRepo.ts";
 import { createServiceClient } from "./db/supabase.ts";
+import { createUsageRepo } from "./db/usageRepo.ts";
 import { EnvError, parseEnv } from "./env.ts";
 import { createLeaderLock } from "./lock/leaderLock.ts";
 import { runLeaderLoop, type StartLeaderSession } from "./lock/leaderLoop.ts";
 import { createAlerter } from "./health/alerts.ts";
 import { createResendSender } from "./health/email.ts";
 import { createHeartbeat, type Heartbeat } from "./health/heartbeat.ts";
-import { createIngest } from "./ingest/ingest.ts";
+import { botIdentity, createIngest } from "./ingest/ingest.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { createPairingWatcher, type PairingWatcher } from "./pairing/pairingWatcher.ts";
 import { createSupabaseAuthState } from "./whatsapp/authState.ts";
@@ -26,7 +32,9 @@ import {
   createBaileysSocketFactory,
   createConnectionManager,
   type ConnectionManager,
+  type SocketLike,
 } from "./whatsapp/connection.ts";
+import { createSendQueue, type SendQueue } from "./whatsapp/sendQueue.ts";
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -76,17 +84,37 @@ function main() {
   const connectionRepo = createConnectionRepo(db);
   const pairingRepo = createPairingRepo(db);
   const createSocket = createBaileysSocketFactory(logger);
-  const ingest = createIngest({
-    groups: createGroupsRepo(db),
-    messages: createMessagesRepo(db),
-    audit: createAuditRepo(db),
+  const groupsRepo = createGroupsRepo(db);
+  const messagesRepo = createMessagesRepo(db);
+  const auditRepo = createAuditRepo(db);
+
+  // The socket of the current leader session; null whenever this instance holds none.
+  let currentSocket: SocketLike | null = null;
+  let sendQueue: SendQueue | null = null;
+  const assistant = createAssistant({
+    groups: groupsRepo,
+    messages: messagesRepo,
+    knowledge: createKnowledgeRepo(db),
+    usage: createUsageRepo(db),
+    settings: cachedAiSettings(createAiSettingsRepo(db)), // Settings page changes apply within 60 s
+    audit: auditRepo,
+    ai: createOpenRouterClient({ logger }),
+    send: {
+      enqueue: (message) =>
+        sendQueue
+          ? sendQueue.enqueue(message)
+          : Promise.reject(new Error("no leader session: cannot send")),
+      stop: () => sendQueue?.stop(),
+    },
+    getBot: () => (currentSocket ? botIdentity(currentSocket) : { jid: null, lid: null }),
     logger,
-    // Phase 3 replaces this with the assistant pipeline (intent → answer / reminder).
-    onTagged: (message, group) =>
-      logger.info(
-        { groupId: group.id, waMessageId: message.waMessageId },
-        "tagged message stored (answers arrive in Phase 3)",
-      ),
+  });
+  const ingest = createIngest({
+    groups: groupsRepo,
+    messages: messagesRepo,
+    audit: auditRepo,
+    logger,
+    onTagged: (message, group, raw) => assistant.handle(message, group, raw),
   });
   const alerter = createAlerter({
     store: createAlertsRepo(db),
@@ -106,6 +134,9 @@ function main() {
     const stopAll = async () => {
       // Lock lost: never write session state again from this instance.
       if (!lock.isHeld()) auth.discardPending();
+      sendQueue?.stop();
+      sendQueue = null;
+      currentSocket = null;
       heartbeat?.stop();
       await connection?.stop(); // closes the socket first
       await pairing?.stop();
@@ -134,7 +165,10 @@ function main() {
         instanceId,
         createSocket,
         canConnect: () => lock.isHeld() && !signal.aborted,
-        onSocket: (sock) => ingest.attach(sock),
+        onSocket: (sock) => {
+          currentSocket = sock;
+          ingest.attach(sock);
+        },
         onAlert: (kind, detail) => {
           if (kind !== "offline") alerter.notify(kind, detail);
         },
@@ -148,6 +182,11 @@ function main() {
           .catch((error: unknown) => {
             logger.error({ err: error }, "could not resolve alerts");
           });
+      });
+      // Only the lock holder sends; a fenced session never reaches WhatsApp.
+      sendQueue = createSendQueue({
+        getSocket: () => (lock.isHeld() && !signal.aborted ? currentSocket : null),
+        logger,
       });
       pairing = createPairingWatcher({ store: pairingRepo, connection, logger });
       heartbeat = createHeartbeat({ store: connectionRepo, instanceId, logger });

@@ -5,6 +5,15 @@ import type { ServiceClient } from "./supabase.ts";
 
 export type GroupRecord = { id: string; jid: string; name: string; status: GroupStatus };
 
+/** The settings the assistant needs for one tagged message, read fresh each time. */
+export type GroupAssistantSettings = {
+  aiEnabled: boolean;
+  /** ADR-030: general questions may be answered from the model's own knowledge. */
+  allowGeneralKnowledge: boolean;
+  dailyReplyCap: number;
+  botInstructions: string | null;
+};
+
 export type GroupStore = {
   listAll(): Promise<GroupRecord[]>;
   findByJid(jid: string): Promise<GroupRecord | null>;
@@ -13,6 +22,7 @@ export type GroupStore = {
   rename(id: string, name: string): Promise<void>;
   setStatus(id: string, status: GroupStatus): Promise<void>;
   touchActivity(id: string, at: Date): Promise<void>;
+  assistantSettings(id: string): Promise<GroupAssistantSettings | null>;
 };
 
 const COLUMNS = "id, wa_group_jid, name, status";
@@ -70,5 +80,22 @@ export function createGroupsRepo(db: ServiceClient): GroupStore {
     setStatus: (id, status) => update(id, { status }),
 
     touchActivity: (id, at) => update(id, { last_activity_at: at.toISOString() }),
+
+    async assistantSettings(id) {
+      const { data, error } = await db
+        .from("groups")
+        .select("ai_enabled, allow_general_knowledge, daily_reply_cap, bot_instructions")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) throw new Error(`groups read failed: ${error.message}`);
+      return data
+        ? {
+            aiEnabled: data.ai_enabled,
+            allowGeneralKnowledge: data.allow_general_knowledge,
+            dailyReplyCap: data.daily_reply_cap,
+            botInstructions: data.bot_instructions,
+          }
+        : null;
+    },
   };
 }

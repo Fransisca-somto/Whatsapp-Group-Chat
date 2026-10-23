@@ -3,7 +3,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 /** Shown while the session and role load (ui-context.md §5: skeletons, no full-page spinners). */
 export function AppShellSkeleton() {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="fixed inset-0 flex flex-col overflow-hidden">
       <div className="flex h-14 items-center gap-3 border-b bg-surface px-4">
         <Skeleton className="h-5 w-40" />
         <div className="flex-1" />

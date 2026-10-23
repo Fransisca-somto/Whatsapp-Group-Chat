@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const changeGroupStatus = vi.fn();
 vi.mock("@/server/actions/groups", () => ({ changeGroupStatus }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
+const push = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push }) }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const { ApproveGroupButton, GroupStatusActions } = await import("./GroupStatusActions");
@@ -12,6 +13,7 @@ const GROUP_ID = "6f1d2c3b-4a5e-4f60-8a7b-9c0d1e2f3a4b";
 
 beforeEach(() => {
   changeGroupStatus.mockReset();
+  push.mockReset();
   changeGroupStatus.mockResolvedValue({ ok: true, data: { status: "active" } });
 });
 
@@ -54,5 +56,11 @@ describe("ApproveGroupButton", () => {
     render(<ApproveGroupButton groupId={GROUP_ID} />);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(changeGroupStatus).toHaveBeenCalledWith({ groupId: GROUP_ID, action: "approve" });
+  });
+
+  it("goes to the group's Train tab after approving", async () => {
+    render(<ApproveGroupButton groupId={GROUP_ID} />);
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith(`/groups/${GROUP_ID}?tab=train`));
   });
 });

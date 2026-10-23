@@ -26,6 +26,7 @@ describe("group action inputs", () => {
       groupId,
       reminderPermission: "any_member",
       aiEnabled: true,
+      allowGeneralKnowledge: true,
       dailyReplyCap: 200,
       retentionDays: null,
     });
@@ -34,6 +35,7 @@ describe("group action inputs", () => {
       groupId,
       reminderPermission: "everyone",
       aiEnabled: true,
+      allowGeneralKnowledge: true,
       dailyReplyCap: 0,
       retentionDays: null,
     });

@@ -1,7 +1,7 @@
 // One inbound group message (architecture.md §4, steps 1–3 for Phase 2):
 //   group gate (cached status; only active and paused groups are stored) → store once (dedupe on
-//   the WhatsApp message ID) → tag gate. Tagged messages are handed to onTagged, which Phase 3
-//   replaces with the assistant pipeline.
+//   the WhatsApp message ID) → tag gate. Tagged messages are handed to onTagged (the assistant
+//   pipeline, assistant/pipeline.ts) with the raw message so the reply can quote it.
 import type { WAMessage } from "baileys";
 
 import {
@@ -18,7 +18,11 @@ import { normalizeMessage } from "../whatsapp/normalizeMessage.ts";
 import { detectTag, type BotIdentity } from "./detectTag.ts";
 import type { GroupDirectory } from "./groupDirectory.ts";
 
-export type TaggedHandler = (message: InboundGroupMessage, group: GroupRecord) => void;
+export type TaggedHandler = (
+  message: InboundGroupMessage,
+  group: GroupRecord,
+  raw: WAMessage,
+) => void;
 
 const ACTIVITY_WRITE_INTERVAL_MS = 60_000;
 
@@ -103,7 +107,7 @@ export function createInboundHandler(deps: {
       if (!inserted) return; // already stored: never handle a message twice
 
       await touchActivity(group, message.sentAt);
-      if (tagged) onTagged(message, group);
+      if (tagged) onTagged(message, group, raw);
     },
   };
 }

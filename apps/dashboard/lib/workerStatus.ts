@@ -1,5 +1,7 @@
 // What the dashboard shows for the worker (api-interfaces.md §2.2): `offline` when the
-// heartbeat is older than 60 s, otherwise the status the worker last recorded.
+// heartbeat is older than 60 s, otherwise the status the worker last recorded. `unknown` when the
+// dashboard itself could not read the status (e.g. a network blip to Supabase), so a failed read
+// never shows a false "Offline".
 import type { WaConnectionStatus } from "@soft-agent-support/shared";
 
 export const OFFLINE_AFTER_MS = 60_000;
@@ -9,7 +11,7 @@ export type WorkerConnectionRow = {
   last_heartbeat_at: string | null;
 };
 
-export type WorkerDisplayStatus = WaConnectionStatus | "offline";
+export type WorkerDisplayStatus = WaConnectionStatus | "offline" | "unknown";
 
 const KNOWN: readonly string[] = [
   "not_linked",
@@ -24,7 +26,9 @@ const KNOWN: readonly string[] = [
 export function workerDisplayStatus(
   row: WorkerConnectionRow | null,
   nowMs: number,
+  readFailed = false,
 ): WorkerDisplayStatus {
+  if (readFailed) return "unknown";
   const lastSeen = secondsSinceHeartbeat(row, nowMs);
   if (row === null || lastSeen === null || lastSeen * 1000 > OFFLINE_AFTER_MS) return "offline";
   return KNOWN.includes(row.status) ? (row.status as WaConnectionStatus) : "offline";

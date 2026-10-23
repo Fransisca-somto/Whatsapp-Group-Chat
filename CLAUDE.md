@@ -38,7 +38,7 @@ The only exceptions: answering questions, reading files, and running read-only c
 
 ## 2. What This Project Is (one paragraph)
 
-A WhatsApp **group assistant** for a single company. A Node/TypeScript worker uses the Baileys library to run one linked WhatsApp number that sits in multiple staff groups. It answers questions when tagged, using shared company knowledge plus searchable per-group history, lets authorized users create one-off reminders by tagging it (with confirmation), and posts scheduled announcements and reminders. A Next.js dashboard on Vercel manages groups, authorized users, knowledge, reminders, announcements, pairing and worker health. Supabase holds all data. The company's existing customer chats on the official Meta Cloud API are **separate and must not be touched**. Full details: `Workflow/project-overview.md`.
+A WhatsApp **group assistant** for a single company. A Node/TypeScript worker uses the Baileys library to run one linked WhatsApp number that sits in multiple staff groups. It answers questions when tagged, using each group's own training plus searchable per-group history, lets authorized users create one-off reminders by tagging it (with confirmation), and posts scheduled announcements and reminders. A Next.js dashboard on Vercel manages groups and their training, the AI provider (the company's own OpenRouter key and models), authorized users, reminders, announcements, pairing and worker health. Nothing is company-specific in code, so the project can be copied for another company. Supabase holds all data. The company's existing customer chats on the official Meta Cloud API are **separate and must not be touched**. Full details: `Workflow/project-overview.md`.
 
 ---
 
