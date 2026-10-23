@@ -12,7 +12,7 @@
 | **Current phase** | Phase 3 — Tagged Q&A (Phase 0–2 ✅) |
 | **Current task** | 3.0–3.6 built on branch `phase-3` (plan: `Workflow/Phases/05-Tagged-QA.md`). Next: owner restarts the worker and runs the live WhatsApp test in "Softwirelex group" |
 | **Blockers** | None |
-| **Last updated** | 2026-10-23 (layout, chat frame, worker status fix) |
+| **Last updated** | 2026-10-23 (general questions switch, migration 0010) |
 
 ---
 
@@ -183,6 +183,9 @@ Decision: Nothing company-specific lives in code. `supabase/seed.sql` is a templ
 **ADR-029 — Reply style · 2026-10-22 · Accepted (owner decision; answers Open Default D3)**
 Decision: Replies match the question: a simple question gets a simple, short answer (even one line); a question that needs explaining gets 3–5 sentences. No padding, no filler openers or sign-offs, no "as an AI", no emojis unless the user used them, chat formatting only (lists only for 3+ steps, bold at most once), reply in the user's language. Enforced in the answer prompt with examples, plus a code clean-up step (`assistant/formatReply.ts`, task 3.4). Also confirmed with the plan: D2 (say "I don't know", never guess) and D4 (5 tags/user/minute, 200 replies/group/day).
 
+**ADR-030 — General questions per group · 2026-10-23 · Accepted (owner decision; amends D2 and ADR-029)**
+Context: In the live test most questions got "I don't have that information", including general ones like "What is WhatsApp used for?", because the bot answered only from training and recent chat. Decision: each group has an **Answer general questions too** switch (`groups.allow_general_knowledge`, default on, migration 0010) on its Settings tab. When on, general questions are answered from the model's own knowledge; company questions still come only from the training, never with general knowledge passed off as company facts, and unclear questions count as company questions. When off, behaviour is the strict D2 rule. Consequences: company facts are still never invented; a strict group (finance, HR) can turn the switch off.
+
 ---
 
 ## Open Defaults to Confirm
@@ -215,6 +218,14 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-23 — Claude (general questions switch; guard trigger fix)
+- Owner question: why nearly every answer was "I don't have that information". The bot's records showed training questions were answered and everything else hit the strict D2 rule, including general questions. Owner approved a plan.
+- Done: migration `0010_general_knowledge_and_guard_fix.sql` (`groups.allow_general_knowledge` default on; `group_messages_guard` leaves out the generated `tsv` column; repair of tagged messages stuck at `received` from the audit log); shared `groupSettingsSchema.allowGeneralKnowledge`; worker answer prompt with strict vs general rules (plus "never say which kind a question is", added after a live test reply opened with "This is a general writing question…"); intent prompt no longer calls ordinary general questions off topic; dashboard switch "Answer general questions too" on the group Settings tab (saved with the other settings).
+- **Bugs found:** (1) every `handled_status` update failed: the guard trigger saw NEW.tsv as null (generated columns are computed after BEFORE triggers), so tagged messages stayed `received`; fixed in 0010. (2) Saving group settings with retention empty ("keep forever") failed with "Retention must be at least 1 day": the form's `setValueAs` turned a null value into `Number(null)` = 0; fixed in `GroupSettingsForm.tsx` with a test. (3) One reply at 23:57 was not accepted by WhatsApp (`send_failed`), most likely during a reconnect; not reproduced.
+- Verified: typecheck, lint, format, tests (shared 59, worker 180, dashboard 97), dashboard build (one retry for the Next.js security warning). Real OpenRouter calls with the Softwirelex training: switch on → "What is WhatsApp used for?", "What does KPI mean?" and a polite-reminder-email question answered naturally; "What's the wifi password?" and "What's our refund policy?" → "I don't know"; the leave question from the training. Switch off → the WhatsApp question gets "I don't know".
+- **Needs the owner:** `pnpm supabase db push` (0010), then regenerate `database.types.ts` (edited by hand to match), then restart the worker.
+- Changed docs: `project-overview.md` (§4.2, owner decision), `data-models.md`, `api-interfaces.md`, `progress.md` (ADR-030).
 
 ### 2026-10-23 — Claude (app shell pinned to the window)
 - Owner screenshot: the browser window itself still scrolled (its scrollbar showed and the top bar scrolled away), although the shell was `h-dvh` with `overflow-hidden` and the CSS was generated correctly. So something outside the shell adds height to the document; not identified (no browser access). Robust fix: the shell is now `fixed inset-0`, so window scrolling can never move it; the chat's message list has `overscroll-contain`. Dashboard tests (94), typecheck, lint, format, build pass.

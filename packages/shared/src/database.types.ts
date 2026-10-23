@@ -351,6 +351,7 @@ export type Database = {
       groups: {
         Row: {
           ai_enabled: boolean
+          allow_general_knowledge: boolean
           approved_at: string | null
           approved_by: string | null
           bot_instructions: string | null
@@ -367,6 +368,7 @@ export type Database = {
         }
         Insert: {
           ai_enabled?: boolean
+          allow_general_knowledge?: boolean
           approved_at?: string | null
           approved_by?: string | null
           bot_instructions?: string | null
@@ -383,6 +385,7 @@ export type Database = {
         }
         Update: {
           ai_enabled?: boolean
+          allow_general_knowledge?: boolean
           approved_at?: string | null
           approved_by?: string | null
           bot_instructions?: string | null

@@ -88,6 +88,7 @@ function setup(options: Options = {}) {
       assistantSettings: () =>
         Promise.resolve({
           aiEnabled: true,
+          allowGeneralKnowledge: true,
           dailyReplyCap: 200,
           botInstructions: null,
           ...options.groupSettings,
@@ -212,6 +213,18 @@ describe("assistant pipeline", () => {
     const t = setup({ groupSettings: { botInstructions: "This is the sales team." } });
     await t.ask("when do we open?");
     expect(t.requests[1]?.messages[0]?.content).toContain("This is the sales team.");
+  });
+
+  it("passes the group's general-knowledge switch to the answer", async () => {
+    const on = setup();
+    await on.ask("what is whatsapp used for?");
+    expect(on.requests[1]?.messages[0]?.content).toContain(
+      "General questions are common knowledge",
+    );
+    const off = setup({ groupSettings: { allowGeneralKnowledge: false } });
+    await off.ask("what is whatsapp used for?");
+    expect(off.requests[1]?.messages[0]?.content).toContain("Do not use outside knowledge");
+    expect(off.requests[1]?.messages[0]?.content).not.toContain("General questions are");
   });
 
   it("says it doesn't know instead of guessing", async () => {

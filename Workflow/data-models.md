@@ -84,6 +84,7 @@ Editing `title` or `content` resets `embedding_status = 'pending'`.
 | approved_at | timestamptz | |
 | last_activity_at | timestamptz | |
 | bot_instructions | text | Optional, ≤ 1,000 chars. Added to the fixed answer rules for this group, never replacing them (0009, ADR-026) |
+| allow_general_knowledge | boolean not null default true | General questions may be answered from the model's own knowledge; company questions stay training-only (0010, ADR-030) |
 
 `active` and `paused` groups have messages stored (owner decision, 2026-10-19); only `active` groups get replies and posts. `pending`, `removed` and `archived` groups store nothing. The worker sets `pending` (new or re-added group) and `removed` (bot left); the dashboard moves groups only along the transitions in `packages/shared/src/groups.ts` (approve, pause, resume, archive).
 
@@ -339,7 +340,7 @@ Returns false when no row was updated. (Implemented in plpgsql with `return foun
 ## 6. Data Rules
 
 - Phone numbers always stored in E.164.
-- `group_messages` is never updated except `handled_status`, `embedding`, `embedding_status` (and the automatic `updated_at`). Enforced by the `group_messages_guard` trigger, which also binds the service-role worker.
+- `group_messages` is never updated except `handled_status`, `embedding`, `embedding_status` (and the automatic `updated_at`). Enforced by the `group_messages_guard` trigger, which also binds the service-role worker. The trigger compares the row without the generated `tsv` column: in a BEFORE UPDATE trigger a stored generated column is not computed yet (NEW.tsv is null), which made every update fail until migration 0010 (found 2026-10-23; 0010 also repaired tagged messages left at `received`, using the audit log).
 - `bot_actions` is append-only (no update/delete policy, even for owner). Enforced by triggers that reject UPDATE, DELETE and TRUNCATE.
 - `knowledge_entries`: editing `title` or `content` resets `embedding_status` to `pending` (trigger). Every dashboard write filters on both `id` and `group_id`; the worker reads only the asking group's rows.
 - `scheduled_posts`: a check constraint allows `recurrence_rule` only when `created_via = 'dashboard'` (ADR-008).

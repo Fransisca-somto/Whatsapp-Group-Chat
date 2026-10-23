@@ -13,6 +13,7 @@ describe("intent prompt", () => {
     });
     expect(system?.content).toContain("(Africa/Lagos); now is 2026-10-22T09:00");
     expect(system?.content).toContain("You do not decide permissions");
+    expect(system?.content).toContain("an ordinary general question is NOT off topic");
     expect(user?.content).toContain("<message>\nremind us Friday 3pm\n</message>");
   });
 
@@ -31,6 +32,7 @@ describe("answer prompt", () => {
     recent: [],
     question: "When do we open?",
     askerName: "Tunde",
+    allowGeneralKnowledge: false,
   };
 
   it("carries the rules, reply style, examples and the no-answer marker", () => {
@@ -40,6 +42,17 @@ describe("answer prompt", () => {
     expect(system).toContain("Match the length to the question");
     expect(system).toContain("Q: What time does the office open?\nA: 8am, Monday to Friday.");
     expect(system).not.toContain("<group_notes>");
+  });
+
+  it("keeps company questions strict when general knowledge is allowed", () => {
+    const system = buildAnswerMessages({ ...input, allowGeneralKnowledge: true })[0]?.content ?? "";
+    expect(system).toContain("General questions are common knowledge");
+    expect(system).toContain("Answer them only from the reference data");
+    expect(system).toContain(`reply with exactly ${NO_ANSWER_MARKER}`);
+    expect(system).toContain("Never present general knowledge as this company's policy");
+    expect(system).toContain("treat it as a company question");
+    expect(system).toContain("Never say whether a question is general or about the company");
+    expect(system).not.toContain("Do not use outside knowledge");
   });
 
   it("wraps training, chat and the question as data", () => {

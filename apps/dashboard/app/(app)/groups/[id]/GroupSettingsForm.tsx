@@ -91,6 +91,24 @@ export function GroupSettingsForm({
         />
       </div>
 
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <Label htmlFor="general-knowledge">Answer general questions too</Label>
+          <p className="text-xs text-muted-foreground">
+            Lets the bot answer everyday questions from its own knowledge, like “What is WhatsApp
+            used for?”. Questions about your company are still answered only from this group&apos;s
+            training. Turn off to answer from the training only.
+          </p>
+        </div>
+        <Controller
+          control={control}
+          name="allowGeneralKnowledge"
+          render={({ field }) => (
+            <Switch id="general-knowledge" checked={field.value} onCheckedChange={field.onChange} />
+          )}
+        />
+      </div>
+
       <div className="flex flex-col gap-2">
         <Label htmlFor="daily-cap">Daily reply limit</Label>
         <Input
@@ -118,7 +136,9 @@ export function GroupSettingsForm({
           className="w-32"
           aria-invalid={errors.retentionDays ? true : undefined}
           {...register("retentionDays", {
-            setValueAs: (value: string) => (value === "" ? null : Number(value)),
+            // "Keep forever" is null; RHF can pass that null back in, and Number(null) would be 0.
+            setValueAs: (value: string | null) =>
+              value === "" || value === null ? null : Number(value),
           })}
         />
         <p className="text-xs text-muted-foreground">Leave empty to keep messages forever.</p>

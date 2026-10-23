@@ -7,6 +7,8 @@ import { reminderPermissionSchema } from "./enums.ts";
 export const groupSettingsSchema = z.object({
   reminderPermission: reminderPermissionSchema,
   aiEnabled: z.boolean(),
+  /** ADR-030: answer general questions from the model's knowledge; company facts stay training-only. */
+  allowGeneralKnowledge: z.boolean(),
   dailyReplyCap: z.number().int().positive("Daily cap must be at least 1"),
   /** null = keep forever. */
   retentionDays: z.number().int().positive("Retention must be at least 1 day").nullable(),

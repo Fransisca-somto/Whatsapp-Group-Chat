@@ -110,7 +110,14 @@ export async function updateGroupSettings(input: unknown): Promise<ActionResult>
   if (!parsed.success) {
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Check the settings." };
   }
-  const { groupId, reminderPermission, aiEnabled, dailyReplyCap, retentionDays } = parsed.data;
+  const {
+    groupId,
+    reminderPermission,
+    aiEnabled,
+    allowGeneralKnowledge,
+    dailyReplyCap,
+    retentionDays,
+  } = parsed.data;
 
   const supabase = await createClient();
   const { data: updated, error } = await supabase
@@ -118,6 +125,7 @@ export async function updateGroupSettings(input: unknown): Promise<ActionResult>
     .update({
       reminder_permission: reminderPermission,
       ai_enabled: aiEnabled,
+      allow_general_knowledge: allowGeneralKnowledge,
       daily_reply_cap: dailyReplyCap,
       retention_days: retentionDays,
     })
@@ -133,7 +141,7 @@ export async function updateGroupSettings(input: unknown): Promise<ActionResult>
     userId: user.userId,
     action: "group_settings_updated",
     groupId,
-    detail: { reminderPermission, aiEnabled, dailyReplyCap, retentionDays },
+    detail: { reminderPermission, aiEnabled, allowGeneralKnowledge, dailyReplyCap, retentionDays },
   });
   refresh(groupId);
   return { ok: true, data: undefined };

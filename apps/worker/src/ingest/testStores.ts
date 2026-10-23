@@ -34,7 +34,12 @@ export function memoryGroups(initial: Omit<GroupRecord, "id">[] = []) {
     },
     touchActivity,
     assistantSettings: () =>
-      Promise.resolve({ aiEnabled: true, dailyReplyCap: 200, botInstructions: null }),
+      Promise.resolve({
+        aiEnabled: true,
+        allowGeneralKnowledge: true,
+        dailyReplyCap: 200,
+        botInstructions: null,
+      }),
   };
   return { rows, store, touchActivity, findByJid };
 }

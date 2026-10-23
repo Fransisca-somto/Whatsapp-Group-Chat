@@ -305,6 +305,7 @@ export function createAssistant(deps: AssistantDeps): Assistant {
             recent: history,
             question: text,
             askerName,
+            allowGeneralKnowledge: groupSettings.allowGeneralKnowledge,
           });
           calls.push(answer.call);
           if (answer.kind === "dont_know") {

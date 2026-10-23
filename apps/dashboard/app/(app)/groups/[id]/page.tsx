@@ -78,7 +78,7 @@ async function GroupContent({ params, searchParams }: Props) {
     supabase
       .from("groups")
       .select(
-        "id, name, status, reminder_permission, ai_enabled, daily_reply_cap, retention_days, bot_instructions",
+        "id, name, status, reminder_permission, ai_enabled, allow_general_knowledge, daily_reply_cap, retention_days, bot_instructions",
       )
       .eq("id", id)
       .maybeSingle(),
@@ -161,6 +161,7 @@ async function GroupContent({ params, searchParams }: Props) {
                 defaults={{
                   reminderPermission: group.reminder_permission as ReminderPermission,
                   aiEnabled: group.ai_enabled,
+                  allowGeneralKnowledge: group.allow_general_knowledge,
                   dailyReplyCap: group.daily_reply_cap,
                   retentionDays: group.retention_days,
                 }}

@@ -56,7 +56,8 @@ Before the bot can answer anywhere, the owner saves the company's OpenRouter key
 2. The worker ignores every message that does neither, though it still **stores** all messages from approved groups for history.
 3. The worker shows "typing" for 2–4 seconds (randomized).
 4. The AI answers using: that group's training, the last 15 messages of that group, and the most relevant older messages found by hybrid search.
-5. If the answer is not in the training or history, the bot **says it doesn't know** and suggests asking a responsible person. It never guesses. (Confirmed by the owner, 2026-10-22.)
+5. **Company questions** (anything about the company, its people, policies, prices, dates, systems, passwords, decisions or the group) are answered only from the training and history. If the answer is not there, the bot **says it doesn't know** and suggests asking a responsible person. It never guesses. (Confirmed by the owner, 2026-10-22.)
+6. **General questions** (common knowledge, definitions, how-tos, writing help, e.g. "What is WhatsApp used for?") are answered from the AI's own knowledge when the group's **Answer general questions too** switch is on (the default). The bot never presents general knowledge as company policy, and treats unclear questions as company questions. With the switch off, it answers from the training and history only. (Owner decision, 2026-10-23, ADR-030.)
 
 ### 4.3 Creating a reminder by tag
 1. A member tags the bot, e.g. "@bot remind us Friday 3pm to submit reports".

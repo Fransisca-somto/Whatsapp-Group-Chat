@@ -8,6 +8,7 @@ describe("groupSettingsSchema", () => {
   const valid = {
     reminderPermission: "admins_only",
     aiEnabled: true,
+    allowGeneralKnowledge: true,
     dailyReplyCap: 200,
     retentionDays: null,
   };
@@ -15,6 +16,12 @@ describe("groupSettingsSchema", () => {
   it("accepts valid settings, including keep-forever retention", () => {
     expect(groupSettingsSchema.safeParse(valid).success).toBe(true);
     expect(groupSettingsSchema.safeParse({ ...valid, retentionDays: 90 }).success).toBe(true);
+  });
+
+  it("requires the general-knowledge switch", () => {
+    expect(
+      groupSettingsSchema.safeParse({ ...valid, allowGeneralKnowledge: undefined }).success,
+    ).toBe(false);
   });
 
   it("rejects values the database would reject", () => {

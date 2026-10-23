@@ -8,6 +8,8 @@ export type GroupRecord = { id: string; jid: string; name: string; status: Group
 /** The settings the assistant needs for one tagged message, read fresh each time. */
 export type GroupAssistantSettings = {
   aiEnabled: boolean;
+  /** ADR-030: general questions may be answered from the model's own knowledge. */
+  allowGeneralKnowledge: boolean;
   dailyReplyCap: number;
   botInstructions: string | null;
 };
@@ -82,13 +84,14 @@ export function createGroupsRepo(db: ServiceClient): GroupStore {
     async assistantSettings(id) {
       const { data, error } = await db
         .from("groups")
-        .select("ai_enabled, daily_reply_cap, bot_instructions")
+        .select("ai_enabled, allow_general_knowledge, daily_reply_cap, bot_instructions")
         .eq("id", id)
         .maybeSingle();
       if (error) throw new Error(`groups read failed: ${error.message}`);
       return data
         ? {
             aiEnabled: data.ai_enabled,
+            allowGeneralKnowledge: data.allow_general_knowledge,
             dailyReplyCap: data.daily_reply_cap,
             botInstructions: data.bot_instructions,
           }
