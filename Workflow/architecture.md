@@ -18,7 +18,7 @@
 | Auth (dashboard) | **Supabase Auth** (email + password, sign-ups disabled) via `@supabase/ssr` | Browser and server clients in `apps/dashboard/lib/supabase/`. `apps/dashboard/proxy.ts` (Next.js 16's replacement for `middleware.ts`) refreshes the session and redirects signed-out visitors to `/login`; it is an optimistic check only. `server/currentUser.ts` re-checks the `dashboard_users` role; a user with no row is sent to `/auth/signout?reason=no_access`. |
 | Realtime | **Supabase Realtime** | Dashboard sees worker status and pairing codes live; worker receives requests. |
 | AI (chat) | **OpenRouter**, called with `fetch` (no SDK). The company's own key and its chat and fallback models are set by the owner on the dashboard Settings page; the key lives in Supabase Vault (ADR-027). Suggested: a small Claude Haiku model, with a fallback from a different provider | Cheap, swappable models; a new company needs no server access to set its AI account. |
-| AI (embeddings) | Configurable via env; default `text-embedding-3-small` (1536 dims) `[DEFAULT]` | Needed for semantic search. Changing the model requires re-embedding. |
+| AI (embeddings) | **OpenRouter** embeddings API with the same Settings-page key; model fixed to `openai/text-embedding-3-small` (1536 dims), not changeable from the dashboard (ADR-031) | Search by meaning. Another model has a different size and would need every message re-indexed. |
 | Validation | **zod** | Shared schemas for every boundary (`packages/shared/src/schemas/`). |
 | Time | **date-fns** + **date-fns-tz** (shared package) | Helpers in `packages/shared/src/time.ts`; the timezone is always an argument. |
 | Logging | **pino** (worker), structured JSON | Searchable logs on the host. Factory in `apps/worker/src/logger.ts` redacts secret-looking fields. `pnpm dev` pipes output through **pino-pretty** (dev dependency) for local reading; production output stays JSON. |
@@ -55,7 +55,8 @@
 │           ├── scheduler/      # 30s poller, claiming, sending, recurrence
 │           ├── pairing/        # Pair / relink request handling
 │           ├── health/         # Heartbeat, alerts
-│           ├── ai/             # OpenRouter + embeddings clients
+│           ├── embeddings/     # Background search indexing job (leader-only, every 30 s)
+│           ├── ai/             # OpenRouter chat + embeddings clients
 │           └── db/             # Supabase service-role client + repositories
 ├── packages/
 │   └── shared/                 # Types, zod schemas, constants, time utils (used by both apps)
@@ -148,8 +149,6 @@ Implemented as the pure function `decideReconnect` in `whatsapp/reconnectPolicy.
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
 SESSION_ENCRYPTION_KEY        # 32-byte base64
-EMBEDDINGS_API_KEY
-EMBEDDINGS_MODEL              # default: text-embedding-3-small
 RESEND_API_KEY                # owner alert email (required from 1.7)
 OWNER_ALERT_EMAILS            # comma-separated recipients (required from 1.7)
 ALERT_FROM_EMAIL              # default: Group Assistant <onboarding@resend.dev>
@@ -162,7 +161,7 @@ NEXT_PUBLIC_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY     # server-only, used sparingly in server actions
 ```
-The worker validates all variables with zod on boot (`apps/worker/src/env.ts`) and exits with a clear error listing every missing or invalid variable by name (never its value). Variables become **required in the task that first uses them** (ADR-024): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SESSION_ENCRYPTION_KEY` from task 1.1; `RESEND_API_KEY` and `OWNER_ALERT_EMAILS` from task 1.7; embeddings variables from Phase 4. The OpenRouter key and models are **not** environment variables: the owner sets them on the dashboard Settings page and the worker reads them from the database (ADR-027). Until then they are optional but still format-checked when set. Empty values count as unset.
+The worker validates all variables with zod on boot (`apps/worker/src/env.ts`) and exits with a clear error listing every missing or invalid variable by name (never its value). Variables become **required in the task that first uses them** (ADR-024): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SESSION_ENCRYPTION_KEY` from task 1.1; `RESEND_API_KEY` and `OWNER_ALERT_EMAILS` from task 1.7. The OpenRouter key and models are **not** environment variables: the owner sets them on the dashboard Settings page and the worker reads them from the database (ADR-027). Search uses the same key with a fixed embedding model, so the `EMBEDDINGS_*` variables were removed in Phase 4 (ADR-031); leftover values are ignored. Before a variable becomes required it is optional but still format-checked when set. Empty values count as unset.
 
 Locally the worker reads `apps/worker/.env` through Node's built-in `--env-file-if-exists` flag in its `dev` and `start` scripts (no `dotenv`). On the host, variables come from the platform and no file is needed.
 

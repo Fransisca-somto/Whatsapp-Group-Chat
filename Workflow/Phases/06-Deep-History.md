@@ -1,7 +1,7 @@
 # Step 06 — Phase 4: Deep History (Search by Meaning and Keyword)
 
 > Covers `progress.md` Phase 4, tasks **4.1–4.4**.
-> Status: **plan, awaiting owner approval.** No code is written until the owner approves (CLAUDE.md §1).
+> Status: **approved 2026-10-23 (P8–P13 as written); built on `phase-4`.** One change approved before coding: migration 0011 also replaces `search_group_history` so it leaves out the bot's replies and returns the sender's phone (see 4.2).
 > Branch: `phase-4`, created from `phase-3` (or from `main` once `phase-3` is merged). One commit per task.
 > Phase rule: Phase 4 starts before Phase 3 is marked ✅ only with the owner's explicit approval; the four remaining Phase 3 checks can run in parallel.
 
@@ -45,7 +45,7 @@ The bot can find older conversations and the right training entries by meaning a
 - The `EMBEDDINGS_API_KEY` and `EMBEDDINGS_MODEL` environment variables are removed (the key is the Settings key; the model is fixed, P11).
 
 ### 4.2 Search functions
-- Already in the database. Migration 0011 adds what indexing needs (see Database) and leaves the search logic unchanged.
+- Already in the database. Migration 0011 adds what indexing needs (see Database). **Changed with the owner's approval:** `search_group_history` also leaves out the bot's own replies (otherwise keyword matches would bring them back, against P10) and returns `sender_phone_e164`, so a sender without a WhatsApp name shows by number rather than "Someone". `search_knowledge` is unchanged.
 - `db/searchRepo.ts`: `searchHistory(groupId, embedding | null, keywords, limit)` and `searchTraining(groupId, …)`. The group is required in the type, so there is no way to search without it.
 
 ### 4.3 Retrieval in answers
