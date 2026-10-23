@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 3 — Tagged Q&A (Phase 0–2 ✅) |
-| **Current task** | 3.0–3.6 built on branch `phase-3` (plan: `Workflow/Phases/05-Tagged-QA.md`). Next: owner restarts the worker and runs the live WhatsApp test in "Softwirelex group" |
+| **Current phase** | Phase 4 — Deep History (Phase 0–3 ✅) |
+| **Current task** | Merge `phase-3` into `main`; then owner reviews the Phase 4 plan (`Workflow/Phases/06-Deep-History.md`, decisions P8–P13) |
 | **Blockers** | None |
-| **Last updated** | 2026-10-23 (general questions switch, migration 0010) |
+| **Last updated** | 2026-10-23 (Phase 3 complete) |
 
 ---
 
@@ -47,15 +47,15 @@ Phases run in order. Do not start a phase until the previous one is ✅, unless 
 - ✅ 2.5 Handle bot removed from group → status `removed`; its scheduled posts are not claimed while it is not `active` (`claim_due_posts`).
 - **Exit criteria:** messages from approved groups appear in the group page; pending groups store nothing.
 
-### Phase 3 — Settings, Per-Group Training & Tagged Q&A 🟦
+### Phase 3 — Settings, Per-Group Training & Tagged Q&A ✅
 Plan: `Workflow/Phases/05-Tagged-QA.md` (owner-approved 2026-10-22).
 - ✅ 3.0 Settings page: company name, bot name, timezone; OpenRouter key (Vault) and models chosen from the dashboard; setup for copying the project (seed template, README). Checked live by the owner (key and models saved).
 - ✅ 3.1 Per-group training: Train tab (type, upload .txt/.md, copy from group, bot instructions), Not trained marker, Training overview. Checked live by the owner (sample handbook uploaded).
-- 🟦 3.2 OpenRouter client with timeout, retry, fallback model (key and models from the database). Built; real calls verified.
-- 🟦 3.3 Intent classification with zod-validated JSON output. Built; real calls verified.
-- 🟦 3.4 Answer generation using the group's training + last 15 messages; reply style rules; "I don't know" behavior. Built; real calls verified.
-- 🟦 3.5 Typing delay, send queue, rate limits, daily caps, `ai_usage` tracking. Built; awaiting the WhatsApp test.
-- 🟦 3.6 `bot_actions` audit log + `/audit` page. Built; awaiting the WhatsApp test.
+- ✅ 3.2 OpenRouter client with timeout, retry, fallback model (key and models from the database).
+- ✅ 3.3 Intent classification with zod-validated JSON output.
+- ✅ 3.4 Answer generation using the group's training + last 15 messages; reply style rules; "I don't know" behavior.
+- ✅ 3.5 Typing delay, send queue, rate limits, daily caps, `ai_usage` tracking.
+- ✅ 3.6 `bot_actions` audit log + `/audit` page.
 - **Exit criteria:** the owner configures company, AI provider and per-group training from the dashboard; tagging the bot in a trained group gets a correct reply whose length fits the question; untagged messages get nothing; no group sees another's training; injection attempts ("ignore your instructions...") do not change permissions.
 
 ### Phase 4 — Deep History (Hybrid Search) ⬜
@@ -218,6 +218,13 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-23 — Claude (Phase 3 complete)
+- Owner reported the Phase 3 live test in WhatsApp passed: "tested and works as expected". Tasks 3.2–3.6 and Phase 3 marked ✅.
+- Not recorded step by step: which checks were run individually (in particular cross-group training isolation with a second group). Recheck isolation in the Phase 4 isolation test.
+- Proposed but parked by the owner ("leave it for now"): creating and managing dashboard users from the app (owner-only Team page, temporary password with forced change, migration). Not built; ADR-022 unchanged.
+- Next: merge `phase-3` into `main` (owner approval for push and PR); owner reviews the Phase 4 plan, `Workflow/Phases/06-Deep-History.md` (P8–P13).
+- Changed docs: `progress.md`; `Phases/06-Deep-History.md` added (plan, awaiting approval).
 
 ### 2026-10-23 — Claude (practical questions rule; complete answers)
 - Owner request after "How can I fix my laptop (HP screen is not working)" got only the IT support number: plan approved. Also wrote `it-support-playbook.md` (12 general IT entries, ~5,900 characters) for the owner to upload; it was uploaded (18 active entries in the group).
