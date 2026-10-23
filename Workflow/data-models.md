@@ -63,11 +63,12 @@ The OpenRouter key itself is **not** in any table: it is the Vault secret `openr
 | is_active | boolean not null default true | Inactive entries are never retrieved |
 | embedding | vector(1536) | null until embedded |
 | embedding_status | text not null default 'pending' | `pending`,`done`,`failed` |
+| embedding_attempts | int not null default 0 | Failed indexing attempts; `failed` at 3 (0011) |
 | tsv | tsvector generated always as (to_tsvector('simple', title \|\| ' ' \|\| content)) stored | |
 | updated_by | uuid | FK → dashboard_users |
 
-Indexes: HNSW on `embedding vector_cosine_ops`; GIN on `tsv`; (`group_id`, `updated_at desc`).
-Editing `title` or `content` resets `embedding_status = 'pending'`.
+Indexes: HNSW on `embedding vector_cosine_ops`; GIN on `tsv`; (`group_id`, `updated_at desc`); partial (`updated_at`) where `embedding_status = 'pending'` (0011, for the indexing job).
+Editing `title` or `content` resets `embedding_status = 'pending'` and `embedding_attempts = 0`.
 
 ### 3.4 `groups`
 | Column | Type | Notes |
@@ -120,11 +121,12 @@ Editing `title` or `content` resets `embedding_status = 'pending'`.
 | mentions_bot | boolean not null default false | |
 | sent_at | timestamptz not null | WhatsApp timestamp |
 | handled_status | text | null for untagged; else `received`,`answered`,`refused`,`rate_limited`,`failed` |
-| embedding | vector(1536) | null until embedded; only for text ≥ 3 words |
-| embedding_status | text not null default 'pending' | `pending`,`done`,`skipped`,`failed` |
+| embedding | vector(1536) | null until embedded; only staff text or captions of 3+ words |
+| embedding_status | text not null default 'pending' | `pending`,`done`,`skipped`,`failed`. `skipped`: the bot's own replies, media without a caption, under 3 words (P10) |
+| embedding_attempts | int not null default 0 | Failed indexing attempts; `failed` at 3 (0011) |
 | tsv | tsvector generated always as (to_tsvector('simple', coalesce(body,''))) stored | |
 
-Indexes: (`group_id`, `sent_at desc`); HNSW on `embedding`; GIN on `tsv`.
+Indexes: (`group_id`, `sent_at desc`); HNSW on `embedding`; GIN on `tsv`; partial (`sent_at desc`) where `embedding_status = 'pending'` (0011).
 
 ### 3.8 `pending_reminder_requests`
 | Column | Type | Notes |
@@ -185,7 +187,7 @@ Groups that become `removed` or `paused`: their `scheduled` posts are left as-is
 | group_id | uuid | nullable for system events |
 | actor_type | text not null | `member`,`authorized_user`,`dashboard_user`,`system` |
 | actor_ref | text | phone, jid or user_id |
-| action | text not null | e.g. `answered`, `refused_unauthorized`, `reminder_requested`, `reminder_confirmed`, `reminder_expired`, `post_sent`, `post_skipped`, `relink_requested`, `group_approved` |
+| action | text not null | e.g. `answered`, `refused_unauthorized`, `reminder_requested`, `reminder_confirmed`, `reminder_expired`, `post_sent`, `post_skipped`, `relink_requested`, `group_approved`, `messages_purged` (system, actor_ref `retention`, detail `{count, retentionDays}`) |
 | detail | jsonb not null default '{}' | No secrets |
 | source_wa_message_id | text | |
 
@@ -272,22 +274,22 @@ Defense in depth: `anon` has no table privileges, and `authenticated` has none o
 ## 5. Database Functions
 
 ### 5.1 `search_group_history(p_group_id uuid, p_query_embedding vector(1536), p_query_text text, p_limit int default 8)`
-Hybrid search scoped to **one group**. Returns `id, wa_message_id, sender_name, body, sent_at, score`.
+Hybrid search scoped to **one group**, staff messages only (the bot's own replies are left out, P10; migration 0011). Returns `id, wa_message_id, sender_name, sender_phone_e164, body, sent_at, score`. A null `p_query_embedding` searches by keyword only.
 ```sql
 with semantic as (
   select id, row_number() over (order by embedding <=> p_query_embedding) as rank
   from group_messages
-  where group_id = p_group_id and embedding is not null
+  where group_id = p_group_id and not is_from_bot and embedding is not null
   order by embedding <=> p_query_embedding
   limit 30
 ),
 keyword as (
   select id, row_number() over (order by ts_rank_cd(tsv, websearch_to_tsquery('simple', p_query_text)) desc) as rank
   from group_messages
-  where group_id = p_group_id and tsv @@ websearch_to_tsquery('simple', p_query_text)
+  where group_id = p_group_id and not is_from_bot and tsv @@ websearch_to_tsquery('simple', p_query_text)
   limit 30
 )
-select m.id, m.wa_message_id, m.sender_name, m.body, m.sent_at,
+select m.id, m.wa_message_id, m.sender_name, m.sender_phone_e164, m.body, m.sent_at,
        coalesce(1.0/(60+s.rank),0) + coalesce(1.0/(60+k.rank),0) as score
 from group_messages m
 left join semantic s on s.id = m.id
@@ -332,6 +334,10 @@ Returns false when no row was updated. (Implemented in plpgsql with `return foun
 - `get_openrouter_key() returns text`: the decrypted key, or null. `service_role` only (worker).
 - `record_ai_usage(p_group_id uuid, p_usage_date date, p_input_tokens int, p_output_tokens int, p_cost_usd numeric, p_replies int default 1) returns void`: one-statement upsert that adds to the day's `ai_usage_daily` row, so concurrent replies never lose a count. `p_usage_date` is the company-timezone date, computed by the caller. `service_role` only.
 
+### 5.7 Retention (migration `0011_search_indexing_and_retention.sql`, ADR-032)
+- `purge_expired_messages() returns int`: for each group with `retention_days` set, deletes its `group_messages` with `sent_at` older than that many days (5,000 per batch) and writes one `messages_purged` audit row per group that lost messages. Returns the total deleted. `security definer`, `service_role` only.
+- `pg_cron` job `purge-expired-messages` runs it daily at 03:00 UTC (04:00 Lagos). It runs in the database, so it works even when the worker is down. The migration unschedules any job with that name first.
+
 **Implementation notes (migration `0006_functions.sql`)**
 - Both search functions order each branch by rank *before* `limit 30`, skip the semantic branch when the query embedding is null, and re-check `group_id` in the final select.
 - Search functions, `claim_due_posts` and `acquire_worker_lock` are executable by `service_role` only.
@@ -340,10 +346,10 @@ Returns false when no row was updated. (Implemented in plpgsql with `return foun
 ## 6. Data Rules
 
 - Phone numbers always stored in E.164.
-- `group_messages` is never updated except `handled_status`, `embedding`, `embedding_status` (and the automatic `updated_at`). Enforced by the `group_messages_guard` trigger, which also binds the service-role worker. The trigger compares the row without the generated `tsv` column: in a BEFORE UPDATE trigger a stored generated column is not computed yet (NEW.tsv is null), which made every update fail until migration 0010 (found 2026-10-23; 0010 also repaired tagged messages left at `received`, using the audit log).
+- `group_messages` is never updated except `handled_status`, `embedding`, `embedding_status`, `embedding_attempts` (0011) and the automatic `updated_at`. Enforced by the `group_messages_guard` trigger, which also binds the service-role worker. The trigger compares the row without the generated `tsv` column: in a BEFORE UPDATE trigger a stored generated column is not computed yet (NEW.tsv is null), which made every update fail until migration 0010 (found 2026-10-23; 0010 also repaired tagged messages left at `received`, using the audit log).
 - `bot_actions` is append-only (no update/delete policy, even for owner). Enforced by triggers that reject UPDATE, DELETE and TRUNCATE.
-- `knowledge_entries`: editing `title` or `content` resets `embedding_status` to `pending` (trigger). Every dashboard write filters on both `id` and `group_id`; the worker reads only the asking group's rows.
+- `knowledge_entries`: editing `title` or `content` resets `embedding_status` to `pending` and `embedding_attempts` to 0 (trigger). Every dashboard write filters on both `id` and `group_id`; the worker reads only the asking group's rows.
 - `scheduled_posts`: a check constraint allows `recurrence_rule` only when `created_via = 'dashboard'` (ADR-008).
 - `updated_at` is maintained by a `set_updated_at()` trigger on every mutable table; `group_messages` therefore also carries `updated_at`.
-- Retention job (daily, worker): delete `group_messages` older than `groups.retention_days` when set.
+- Retention (daily, in the database, §5.7): delete `group_messages` older than `groups.retention_days` when set.
 - Search functions **must** take `group_id` as a required parameter. There is no cross-group search function, by design.

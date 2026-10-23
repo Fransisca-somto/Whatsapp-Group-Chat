@@ -1,17 +1,23 @@
-// Assembles what the AI sees (api-interfaces.md §5.2). Phase 3 sends all of the group's active
-// training up to a size budget; Phase 4 replaces formatTraining's input with search_knowledge
-// results in this same place.
+// Assembles what the AI sees (api-interfaces.md §5.2). Training: all of the group's active
+// entries when they fit the size budget, otherwise the best search matches (P8). History: the
+// last 15 messages plus the best older matches from search (P9).
 import { jidDecode } from "baileys";
 
 import { chatTimeInTz } from "@soft-agent-support/shared";
 
 import type { TrainingEntry } from "../db/knowledgeRepo.ts";
 import type { RecentMessage } from "../db/messagesRepo.ts";
+import type { HistoryMatch } from "../db/searchRepo.ts";
 import type { BotIdentity } from "../ingest/detectTag.ts";
 
 /** ~3,000 tokens: plenty for a group's handbook, cheap per question. */
 export const TRAINING_BUDGET_CHARS = 12_000;
 const HISTORY_LINE_MAX = 500;
+/** P8: training entries sent when the whole training does not fit. */
+export const TRAINING_MATCHES = 8;
+/** P9: older messages added from search. */
+export const OLDER_MATCHES = 8;
+const KEYWORDS_MAX = 12;
 
 export type TrainingContext = {
   text: string;
@@ -20,9 +26,9 @@ export type TrainingContext = {
   dropped: string[];
 };
 
-/** `entries` must be most recently edited first; older entries are dropped once over budget. */
+/** `entries` in priority order (newest edit, or best match, first); later ones are dropped once over budget. */
 export function formatTraining(
-  entries: TrainingEntry[],
+  entries: Pick<TrainingEntry, "title" | "content">[],
   budget = TRAINING_BUDGET_CHARS,
 ): TrainingContext {
   const blocks: string[] = [];
@@ -73,4 +79,58 @@ export function stripBotMention(text: string, bot: BotIdentity): string {
     result = result.replace(new RegExp(`@${id}\\b`, "g"), " ");
   }
   return result.replace(/[ \t]+/g, " ").replace(/^\s+|\s+$/g, "");
+}
+
+/** Words that say nothing about the topic; they would only add noise to keyword search. */
+const STOP_WORDS = new Set(
+  (
+    "the and for are but not you all any can had has have her his him its our out was were " +
+    "who whom whose what when where which why how did does doing done this that these those " +
+    "there their them they then than with from about into over after before again also just " +
+    "only some such very will would should could shall may might must been being here your " +
+    "yours mine she one ones let lets get got please tell know thanks thank yes yeah okay " +
+    "hello hey hii guys anyone someone something anything want need like"
+  ).split(" "),
+);
+
+/**
+ * Keyword text for `websearch_to_tsquery`: the question's meaningful words joined with `or`, so
+ * any matching word counts (the database ranks messages matching more words higher). Plain
+ * words only, so nothing in the question can act as search syntax. Empty when no word is left.
+ */
+export function keywordQuery(question: string): string {
+  const words = question.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const kept = [...new Set(words)].filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
+  return kept.slice(0, KEYWORDS_MAX).join(" or ");
+}
+
+/**
+ * P9: search matches older than the last-15 window (`before` = the oldest message in it), best
+ * `limit` by score, shown oldest first in the same `[time] Name: text` form as recent chat.
+ */
+export function formatOlderMessages(
+  matches: HistoryMatch[],
+  before: string,
+  timezone: string,
+  limit = OLDER_MATCHES,
+): string[] {
+  const cutoff = Date.parse(before);
+  return matches
+    .filter((m) => Date.parse(m.sentAt) < cutoff)
+    .slice(0, limit)
+    .sort((a, b) => Date.parse(a.sentAt) - Date.parse(b.sentAt))
+    .map((m) =>
+      formatHistoryLine(
+        {
+          senderName: m.senderName,
+          senderPhoneE164: m.senderPhoneE164,
+          isFromBot: false,
+          type: "text",
+          body: m.body,
+          sentAt: m.sentAt,
+        },
+        timezone,
+        "",
+      ),
+    );
 }

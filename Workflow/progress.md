@@ -10,9 +10,9 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 4 — Deep History (Phase 0–3 ✅) |
-| **Current task** | Merge `phase-3` into `main`; then owner reviews the Phase 4 plan (`Workflow/Phases/06-Deep-History.md`, decisions P8–P13) |
+| **Current task** | 4.1–4.4 built on branch `phase-4`; migration 0011 applied, isolation check passed, backlog indexed, live test passed, types regenerated. Next: merge `phase-4`; owner tests retention live around 2026-11-23 |
 | **Blockers** | None |
-| **Last updated** | 2026-10-23 (Phase 3 complete) |
+| **Last updated** | 2026-10-23 (Phase 4 built, migration 0011) |
 
 ---
 
@@ -58,11 +58,12 @@ Plan: `Workflow/Phases/05-Tagged-QA.md` (owner-approved 2026-10-22).
 - ✅ 3.6 `bot_actions` audit log + `/audit` page.
 - **Exit criteria:** the owner configures company, AI provider and per-group training from the dashboard; tagging the bot in a trained group gets a correct reply whose length fits the question; untagged messages get nothing; no group sees another's training; injection attempts ("ignore your instructions...") do not change permissions.
 
-### Phase 4 — Deep History (Hybrid Search) ⬜
-- ⬜ 4.1 Embedding pipeline for messages and knowledge (background, batched, retry on failure).
-- ⬜ 4.2 `search_group_history` and `search_knowledge` SQL functions (vector + full-text, reciprocal rank fusion).
-- ⬜ 4.3 Retrieval wired into answers; search strictly scoped to the asking group.
-- ⬜ 4.4 Retention job honoring `groups.retention_days`.
+### Phase 4 — Deep History (Hybrid Search) 🟦
+Plan: `Workflow/Phases/06-Deep-History.md` (owner-approved 2026-10-23, P8–P13).
+- ✅ 4.1 Embedding pipeline for messages and knowledge (background, batched, retry on failure). Live run 2026-10-23: backlog cleared (training 38 done; messages 17 done, 16 skipped; none pending or failed).
+- ✅ 4.2 `search_group_history` and `search_knowledge` SQL functions (vector + full-text, reciprocal rank fusion). Migration 0011 applied; isolation check `supabase/tests/phase4_isolation.sql` passed in the SQL Editor (2026-10-23).
+- ✅ 4.3 Retrieval wired into answers; search strictly scoped to the asking group. Live test passed 2026-10-23 (owner: "works well").
+- 🟦 4.4 Retention job honoring `groups.retention_days`. Built (database `pg_cron` job, migration 0011 applied). Live check deferred by the owner to about 2026-11-23: nothing is old enough to delete yet (Softwirelex group keeps 162 days).
 - **Exit criteria:** "what did we decide about the reports on Monday?" finds the right messages by meaning and by keyword; no cross-group leakage (tested).
 
 ### Phase 5 — Scheduler & Dashboard Scheduling ⬜
@@ -186,6 +187,12 @@ Decision: Replies match the question: a simple question gets a simple, short ans
 **ADR-030 — General questions per group · 2026-10-23 · Accepted (owner decision; amends D2 and ADR-029)**
 Context: In the live test most questions got "I don't have that information", including general ones like "What is WhatsApp used for?", because the bot answered only from training and recent chat. Decision: each group has an **Answer general questions too** switch (`groups.allow_general_knowledge`, default on, migration 0010) on its Settings tab. When on, general questions are answered from the model's own knowledge; company questions still come only from the training, never with general knowledge passed off as company facts, and unclear questions count as company questions. When off, behaviour is the strict D2 rule. Consequences: company facts are still never invented; a strict group (finance, HR) can turn the switch off.
 
+**ADR-031 — Search through OpenRouter with a fixed embedding model · 2026-10-23 · Accepted (owner decision P11; extends ADR-027, amends ADR-024, confirms D9)**
+Context: Phase 4 needs embeddings. A live test showed OpenRouter's embeddings API works with the company's saved key and returns 1,536 numbers per text for `openai/text-embedding-3-small`, the size the database columns were built for. Decision: indexing and question embeddings use the Settings-page OpenRouter key; the model is fixed in code (`ai/embeddings.ts`), not chosen on the dashboard, because another model has a different size and would need every message re-indexed. The `EMBEDDINGS_API_KEY` and `EMBEDDINGS_MODEL` environment variables are removed. The bot's own replies, captionless media and messages under 3 words are not indexed (P10), and `search_group_history` leaves bot replies out and returns the sender's phone (migration 0011; owner-approved change to the plan, which had said the function stays unchanged). Account or service failures never count against a row; content failures fail a row after 3 attempts. Consequences: no new account or key for a new company; a change of embedding model would need a migration and a full re-index.
+
+**ADR-032 — Message retention runs in the database · 2026-10-23 · Accepted (owner decision P12)**
+Decision: `purge_expired_messages()` deletes each group's messages older than its `retention_days`, run daily at 03:00 UTC by the `pg_cron` job `purge-expired-messages` (migration 0011), writing one `messages_purged` audit row per group cleaned. Consequences: retention works even when the worker is down; groups without a retention setting keep everything (D10 unchanged).
+
 ---
 
 ## Open Defaults to Confirm
@@ -199,7 +206,6 @@ Sensible defaults applied during the spec session. The owner should confirm or c
 | D6 | Offline = no heartbeat for 60 s; alert after 5 min | overview §4.7 |
 | D7 | Dashboard roles owner/staff; only owner relinks | overview §2 |
 | D8 | Private chats ignored; media stored as metadata only | overview §7 |
-| D9 | Embedding model `text-embedding-3-small` | architecture §1 |
 | D10 | Retention: keep forever unless set per group | data-models §3 |
 | D11 | Visual system (colors, fonts) | ui-context |
 
@@ -218,6 +224,18 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-23 — Claude (Phase 4 built: search and retention)
+- Task(s): 4.1–4.4 on branch `phase-4` (from `main` after PR #3 merged). Plan approved with P8–P13 as written.
+- Plan change, approved by the owner before coding: migration 0011 also replaces `search_group_history` to leave out the bot's replies (keyword matches would otherwise bring them back, against P10) and to return `sender_phone_e164` (so senders without a WhatsApp name don't show as "Someone").
+- Done: `ai/embeddings.ts` (OpenRouter embeddings, fixed model, 64 per call, zod-checked); `embeddings/embeddingJob.ts` (leader-only, every 30 s, training then messages, skip rules, wait on account/service failures, `failed` after 3 content failures, usage per group); `db/embeddingsRepo.ts`, `db/searchRepo.ts` (group required); retrieval in `assistant/pipeline.ts` + `buildContext.ts` (keyword text joined with `or`, training all-or-top-8, top 8 older messages in `<older_messages>`, keyword-only fallback, audit `searchMode` / `trainingMode` / `trainingMatches` / `historyMatches`); answer prompt rule that the most recent message wins; migration `0011_search_indexing_and_retention.sql` (attempt counters, trigger updates, pending indexes, `search_group_history` change, `purge_expired_messages()` + daily cron); `supabase/tests/phase4_isolation.sql`; Train tab "Indexing…" / "Not searchable"; audit labels for `messages_purged` and older-message counts; `EMBEDDINGS_*` env variables removed. ADR-031, ADR-032; D9 removed from Open Defaults (D10 kept: P12 decided where retention runs, not the default).
+- Small refinements to the plan, within its intent: account or service failures (no credit, bad key, outage) do not count as attempts, so a lapsed OpenRouter balance cannot mark the whole backlog `failed`; the question is embedded only when a search is needed (training over budget or a full last-15 window); if training is over budget and search finds nothing, the most recently edited entries are used (`trainingMode: recent`).
+- Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test` (shared 59, worker 213, dashboard 98) and the dashboard build all pass.
+- `packages/shared/src/database.types.ts` edited **by hand** to match 0011 (new columns, `purge_expired_messages`, `sender_phone_e164` in `search_group_history`).
+- **Needs the owner:** `pnpm supabase db push` (0011); regenerate types (`pnpm supabase gen types typescript --linked > packages/shared/src/database.types.ts`) and confirm `git diff` shows no real change; restart the worker (the backlog of existing messages and training is indexed in the first minutes); run `supabase/tests/phase4_isolation.sql` in the SQL Editor (expect one "PASS" row); then the live test in the plan's Verify section. The local `.env` files still list `EMBEDDINGS_*`; they are ignored and can be deleted.
+- Notes: embedding costs are below `ai_usage_daily.est_cost_usd`'s 4-decimal precision, so they show as tokens rather than dollars. The keyword branch uses the `simple` text config (no stemming): "reports" does not match "report" by keyword, but the meaning search covers it.
+- Changed docs: `progress.md`, `data-models.md`, `api-interfaces.md`, `architecture.md`, `ui-context.md`, `Phases/06-Deep-History.md`.
+- **Update (same day):** the owner confirmed migration 0011 is applied (`group_messages.embedding_attempts` exists) and ran `supabase/tests/phase4_isolation.sql` in the SQL Editor: **PASS** (searches as group A returned no group B rows and no bot replies, by meaning and keyword and by keyword only). Task 4.2 ✅. After the worker restart, the owner's status query showed the backlog indexed: training 38 `done`; messages 17 `done`, 16 `skipped`; nothing `pending` or `failed`. Task 4.1 ✅. Owner ran the live test in "Softwirelex group" (decision posted, 15+ messages after it, asked twice in different words) and reported it works well. Task 4.3 ✅. The owner regenerated `database.types.ts` after 0011: identical to the hand edit (no `git diff`). Retention (4.4): Softwirelex group has `retention_days = 162` and no message is that old, so the job has nothing to delete yet; the owner will test it live in about a month (around 2026-11-23). For a deletion to happen then, a group's "Keep messages for" must be shorter than its oldest messages (e.g. 30 days); the result shows as an "Old messages deleted" Audit log row after 04:00 Lagos.
 
 ### 2026-10-23 — Claude (Phase 3 complete)
 - Owner reported the Phase 3 live test in WhatsApp passed: "tested and works as expected". Tasks 3.2–3.6 and Phase 3 marked ✅.

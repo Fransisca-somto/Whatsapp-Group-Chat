@@ -48,6 +48,7 @@ export const ACTION_LABELS: Record<string, string> = {
   ai_models_updated: "AI models changed",
   pairing_requested: "Link requested",
   relink_requested: "Relink requested",
+  messages_purged: "Old messages deleted",
 };
 
 export function actionLabel(action: string): string {
@@ -81,7 +82,14 @@ const REASONS: Record<string, string> = {
   rate_limited: "OpenRouter rate limit",
 };
 
-/** A short, human summary of what happened, e.g. "Question · answered · 412 tokens". */
+/** "found 3 older messages" when search added history to an answer (Phase 4), else null. */
+function historyText(detail: Json): string | null {
+  const count = Number(field(detail, "historyMatches")) || 0;
+  if (count <= 0) return null;
+  return `found ${count} older ${count === 1 ? "message" : "messages"}`;
+}
+
+/** A short, human summary of what happened, e.g. "answered · found 3 older messages · 412 tokens". */
 export function auditSummary(row: Pick<AuditRow, "action" | "detail">): string {
   const d = row.detail;
   const reason = text(field(d, "reason")) ?? text(field(d, "failure"));
@@ -94,7 +102,7 @@ export function auditSummary(row: Pick<AuditRow, "action" | "detail">): string {
       const kind = text(field(d, "kind"));
       const what =
         kind === "dont_know" ? "didn't know" : kind === "smalltalk" ? "small talk" : "answered";
-      return [what, tokenText].filter(Boolean).join(" · ");
+      return [what, historyText(d), tokenText].filter(Boolean).join(" · ");
     }
     case "refused":
     case "not_set_up":
@@ -126,6 +134,12 @@ export function auditSummary(row: Pick<AuditRow, "action" | "detail">): string {
     case "training_copied": {
       const count = text(field(d, "count"));
       return count ? `${count} ${count === "1" ? "entry" : "entries"}` : "";
+    }
+    case "messages_purged": {
+      const count = Number(field(d, "count")) || 0;
+      const days = text(field(d, "retentionDays"));
+      const what = `${count.toLocaleString("en")} ${count === 1 ? "message" : "messages"}`;
+      return days ? `${what} older than ${days} days` : what;
     }
     case "ai_key_saved":
       return text(field(d, "hint")) ? `ends in …${text(field(d, "hint"))}` : "";

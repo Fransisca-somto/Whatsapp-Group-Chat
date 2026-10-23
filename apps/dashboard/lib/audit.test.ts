@@ -16,6 +16,12 @@ describe("audit labels", () => {
       }),
     ).toBe("answered · 412 tokens");
     expect(auditSummary({ action: "answered", detail: { kind: "dont_know" } })).toBe("didn't know");
+    expect(
+      auditSummary({
+        action: "answered",
+        detail: { kind: "answer", historyMatches: 3, inputTokens: 400, outputTokens: 12 },
+      }),
+    ).toBe("answered · found 3 older messages · 412 tokens");
     expect(auditSummary({ action: "refused", detail: { reason: "injection" } })).toBe(
       "tried to change the rules",
     );
@@ -32,6 +38,10 @@ describe("audit labels", () => {
       "active → paused",
     );
     expect(auditSummary({ action: "training_imported", detail: { count: 6 } })).toBe("6 entries");
+    expect(
+      auditSummary({ action: "messages_purged", detail: { count: 1250, retentionDays: 90 } }),
+    ).toBe("1,250 messages older than 90 days");
+    expect(actionLabel("messages_purged")).toBe("Old messages deleted");
     expect(auditSummary({ action: "ai_key_saved", detail: { hint: "7aec" } })).toBe(
       "ends in …7aec",
     );

@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/u
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  indexingMarker,
   subheadingCount,
   trainingPreview,
   type TrainingEntryView,
@@ -143,6 +144,7 @@ function TrainingRow({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const subheadings = subheadingCount(entry.content);
+  const indexing = indexingMarker(entry.embedding_status);
 
   const setActive = (isActive: boolean) =>
     startTransition(async () => {
@@ -175,6 +177,18 @@ function TrainingRow({
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="font-medium">{entry.title}</h3>
           {!entry.is_active && <Badge variant="outline">Not in use</Badge>}
+          {indexing && (
+            <Badge
+              variant={indexing.failed ? "destructive" : "outline"}
+              title={
+                indexing.failed
+                  ? "Search could not index this entry after 3 tries. Edit and save it to try again."
+                  : "Being prepared for search. This takes up to a minute while the worker runs."
+              }
+            >
+              {indexing.label}
+            </Badge>
+          )}
         </div>
         <p className="text-sm text-muted-foreground">{trainingPreview(entry.content)}</p>
         <p className="text-xs text-muted-foreground">

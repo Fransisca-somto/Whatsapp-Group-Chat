@@ -37,3 +37,19 @@ export const chatCompletionResponseSchema = z.object({
     .optional(),
 });
 export type ChatCompletionResponse = z.infer<typeof chatCompletionResponseSchema>;
+
+/** `POST /api/v1/embeddings`: only the fields the worker uses (api-interfaces.md §6). */
+export const embeddingsResponseSchema = z.object({
+  model: z.string().optional(),
+  data: z
+    .array(z.object({ embedding: z.array(z.number()), index: z.number().int().nonnegative() }))
+    .min(1),
+  usage: z
+    .object({
+      prompt_tokens: z.number().nonnegative().optional(),
+      /** USD, present when OpenRouter reports it. */
+      cost: z.number().nonnegative().optional(),
+    })
+    .optional(),
+});
+export type EmbeddingsResponse = z.infer<typeof embeddingsResponseSchema>;

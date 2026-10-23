@@ -1,5 +1,5 @@
-// OpenRouter chat client (api-interfaces.md §5). The only module that calls OpenRouter
-// (architecture.md §3 rule 4). The key and models come from the dashboard Settings page
+// OpenRouter chat client (api-interfaces.md §5). With ai/embeddings.ts, the only modules that
+// call OpenRouter (architecture.md §3 rule 4). The key and models come from the dashboard Settings page
 // (ADR-027) and are passed in per call; nothing here reads the environment.
 //
 // Timeout 20 s. On a timeout, network error, 429 or 5xx the call is retried once with the
@@ -65,7 +65,8 @@ export class OpenRouterError extends Error {
 
 const RETRYABLE = new Set<OpenRouterFailure>(["timeout", "network", "rate_limited", "unavailable"]);
 
-function failureForStatus(status: number): OpenRouterFailure {
+/** Shared with the embeddings client, so both report failures the same way. */
+export function failureForStatus(status: number): OpenRouterFailure {
   if (status === 401 || status === 403) return "invalid_key";
   if (status === 402) return "no_credits";
   if (status === 408) return "timeout";

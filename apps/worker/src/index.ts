@@ -1,8 +1,10 @@
 // Worker boot (architecture.md §2): validate env, start logging, take the leader lock, then
 // start leader-only modules: session state, the WhatsApp connection, the pairing watcher, the
-// heartbeat, owner alerts, group/message ingestion and the assistant that answers tags.
+// heartbeat, owner alerts, group/message ingestion, the assistant that answers tags and the
+// background search indexing.
 import { randomUUID } from "node:crypto";
 
+import { createEmbeddingsClient } from "./ai/embeddings.ts";
 import { createOpenRouterClient } from "./ai/openrouter.ts";
 import { createAssistant } from "./assistant/pipeline.ts";
 import { cachedAiSettings, createAiSettingsRepo } from "./db/aiSettingsRepo.ts";
@@ -11,13 +13,16 @@ import { createAlertsRepo } from "./db/alertsRepo.ts";
 import { createAuditRepo } from "./db/auditRepo.ts";
 import { createAuthStateRepo } from "./db/authStateRepo.ts";
 import { createConnectionRepo } from "./db/connectionRepo.ts";
+import { createEmbeddingsRepo } from "./db/embeddingsRepo.ts";
 import { createGroupsRepo } from "./db/groupsRepo.ts";
 import { createKnowledgeRepo } from "./db/knowledgeRepo.ts";
 import { createLockRepo } from "./db/lockRepo.ts";
 import { createMessagesRepo } from "./db/messagesRepo.ts";
 import { createPairingRepo } from "./db/pairingRepo.ts";
+import { createSearchRepo } from "./db/searchRepo.ts";
 import { createServiceClient } from "./db/supabase.ts";
 import { createUsageRepo } from "./db/usageRepo.ts";
+import { createEmbeddingJob, type EmbeddingJob } from "./embeddings/embeddingJob.ts";
 import { EnvError, parseEnv } from "./env.ts";
 import { createLeaderLock } from "./lock/leaderLock.ts";
 import { runLeaderLoop, type StartLeaderSession } from "./lock/leaderLoop.ts";
@@ -87,6 +92,10 @@ function main() {
   const groupsRepo = createGroupsRepo(db);
   const messagesRepo = createMessagesRepo(db);
   const auditRepo = createAuditRepo(db);
+  const usageRepo = createUsageRepo(db);
+  // Settings page changes apply within 60 s (api-interfaces.md §2.3).
+  const aiSettings = cachedAiSettings(createAiSettingsRepo(db));
+  const embeddings = createEmbeddingsClient();
 
   // The socket of the current leader session; null whenever this instance holds none.
   let currentSocket: SocketLike | null = null;
@@ -95,8 +104,10 @@ function main() {
     groups: groupsRepo,
     messages: messagesRepo,
     knowledge: createKnowledgeRepo(db),
-    usage: createUsageRepo(db),
-    settings: cachedAiSettings(createAiSettingsRepo(db)), // Settings page changes apply within 60 s
+    search: createSearchRepo(db),
+    embeddings,
+    usage: usageRepo,
+    settings: aiSettings,
     audit: auditRepo,
     ai: createOpenRouterClient({ logger }),
     send: {
@@ -130,6 +141,7 @@ function main() {
     let connection: ConnectionManager | undefined;
     let pairing: PairingWatcher | undefined;
     let heartbeat: Heartbeat | undefined;
+    let indexing: EmbeddingJob | undefined;
 
     const stopAll = async () => {
       // Lock lost: never write session state again from this instance.
@@ -139,6 +151,7 @@ function main() {
       currentSocket = null;
       heartbeat?.stop();
       await connection?.stop(); // closes the socket first
+      await indexing?.stop();
       await pairing?.stop();
     };
     const checkpoint = () => {
@@ -190,6 +203,13 @@ function main() {
       });
       pairing = createPairingWatcher({ store: pairingRepo, connection, logger });
       heartbeat = createHeartbeat({ store: connectionRepo, instanceId, logger });
+      indexing = createEmbeddingJob({
+        store: createEmbeddingsRepo(db),
+        settings: aiSettings,
+        embeddings,
+        usage: usageRepo,
+        logger,
+      });
 
       await connection.start();
       checkpoint();
@@ -197,6 +217,7 @@ function main() {
       checkpoint();
       await heartbeat.start();
       checkpoint();
+      indexing.start();
       return stopAll;
     } catch (error) {
       // Never leave a half-started session (above all, an open socket) behind.
