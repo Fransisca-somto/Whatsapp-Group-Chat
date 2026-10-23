@@ -4,7 +4,8 @@
 //
 //   group gate (active, AI on; paused → silent, P6) → stale check (> 5 min, P4)
 //   → rate gate (user per minute, group per day) → AI configured? → group trained?
-//   → intent → code decision → answer or fixed reply → format → send → status, usage, audit
+//   → intent → code decision → (question: search this group) → answer or fixed reply → format
+//   → send → status, usage, audit
 import type { WAMessage } from "baileys";
 
 import {
@@ -16,19 +17,29 @@ import {
   type Json,
 } from "@soft-agent-support/shared";
 
+import { EMBEDDING_MODEL, type EmbeddingsClient } from "../ai/embeddings.ts";
 import { OpenRouterError, type ChatResult, type OpenRouterClient } from "../ai/openrouter.ts";
 import type { AiSettingsStore, AssistantSettings } from "../db/aiSettingsRepo.ts";
 import type { AuditStore } from "../db/auditRepo.ts";
 import type { GroupRecord, GroupStore } from "../db/groupsRepo.ts";
 import type { KnowledgeStore } from "../db/knowledgeRepo.ts";
-import type { MessageStore } from "../db/messagesRepo.ts";
+import type { MessageStore, RecentMessage } from "../db/messagesRepo.ts";
+import type { SearchQuery, SearchStore } from "../db/searchRepo.ts";
 import type { UsageStore } from "../db/usageRepo.ts";
 import type { BotIdentity } from "../ingest/detectTag.ts";
 import type { Logger } from "../logger.ts";
 import { phoneFromJid } from "../whatsapp/jids.ts";
 import type { SendQueue } from "../whatsapp/sendQueue.ts";
 import { answerQuestion, replyToSmalltalk } from "./answerQuestion.ts";
-import { formatHistoryLine, formatTraining, stripBotMention } from "./buildContext.ts";
+import {
+  formatHistoryLine,
+  formatOlderMessages,
+  formatTraining,
+  keywordQuery,
+  OLDER_MATCHES,
+  stripBotMention,
+  TRAINING_MATCHES,
+} from "./buildContext.ts";
 import { classifyIntent, type AiAccess } from "./classifyIntent.ts";
 import { createGroupQueue, type GroupQueue } from "./groupQueue.ts";
 import { createRateLimiter, type RateLimiter } from "./rateLimiter.ts";
@@ -43,6 +54,8 @@ export type AssistantDeps = {
   groups: Pick<GroupStore, "assistantSettings">;
   messages: MessageStore;
   knowledge: KnowledgeStore;
+  search: SearchStore;
+  embeddings: EmbeddingsClient;
   usage: UsageStore;
   settings: AiSettingsStore;
   audit: AuditStore;
@@ -190,7 +203,8 @@ export function createAssistant(deps: AssistantDeps): Assistant {
     };
 
     const aiDetail = () => ({
-      models: [...new Set(calls.map((c) => c.model))],
+      // The question's embedding is counted in tokens and cost, not listed as a chat model.
+      models: [...new Set(calls.map((c) => c.model).filter((m) => m !== EMBEDDING_MODEL))],
       usedFallback: calls.some((c) => c.usedFallback),
       inputTokens: calls.reduce((sum, c) => sum + c.inputTokens, 0),
       outputTokens: calls.reduce((sum, c) => sum + c.outputTokens, 0),
@@ -268,10 +282,94 @@ export function createAssistant(deps: AssistantDeps): Assistant {
     }
 
     const text = stripBotMention(message.body ?? "", deps.getBot());
-    const history = (await deps.messages.recent(group.id, message.sentAt, ANSWER_HISTORY)).map(
-      (m) => formatHistoryLine(m, settings.timezone, settings.botName),
+    const recentMessages = await deps.messages.recent(group.id, message.sentAt, ANSWER_HISTORY);
+    const history = recentMessages.map((m) =>
+      formatHistoryLine(m, settings.timezone, settings.botName),
     );
     const askerName = message.senderName ?? "a team member";
+
+    /**
+     * Phase 4 retrieval, inside this group only. Training: everything if it fits the budget,
+     * otherwise the best search matches (P8). History: the best matches older than the last-15
+     * window (P9). The question is embedded only when a search is needed; if that fails, search
+     * runs on keywords alone and the answer still goes out.
+     */
+    const retrieve = async (
+      question: string,
+      recent: RecentMessage[],
+    ): Promise<{ training: string; older: string[]; detail: Record<string, Json> }> => {
+      const all = formatTraining(entries);
+      const trainingFits = all.dropped.length === 0;
+      // Fewer than 15 recent messages means the whole history is already in the window.
+      const hasOlder = recent.length === ANSWER_HISTORY;
+      const query: SearchQuery = { embedding: null, keywords: keywordQuery(question) };
+      let searchMode: "none" | "hybrid" | "keyword" = "none";
+
+      if (!trainingFits || hasOlder) {
+        try {
+          const embedded = await deps.embeddings.embed(ai.apiKey, [question]);
+          query.embedding = embedded.vectors[0] ?? null;
+          calls.push({
+            text: "",
+            model: EMBEDDING_MODEL,
+            usedFallback: false,
+            truncated: false,
+            inputTokens: embedded.inputTokens,
+            outputTokens: 0,
+            costUsd: embedded.costUsd,
+          });
+        } catch (error) {
+          log.warn({ err: error, ...ctx }, "question embedding failed; keyword search only");
+        }
+        searchMode = query.embedding ? "hybrid" : query.keywords ? "keyword" : "none";
+      }
+      const canSearch = searchMode !== "none";
+
+      let training = all.text;
+      let trainingMode: "all" | "search" | "recent" = "all";
+      let trainingMatches = 0;
+      if (!trainingFits) {
+        const matches = canSearch
+          ? await deps.search
+              .searchTraining(group.id, query, TRAINING_MATCHES)
+              .catch((error: unknown) => {
+                log.error({ err: error, ...ctx }, "training search failed");
+                return [];
+              })
+          : [];
+        if (matches.length > 0) {
+          training = formatTraining(matches).text;
+          trainingMode = "search";
+          trainingMatches = matches.length;
+        } else {
+          // Nothing found: the most recently edited entries that fit, as before Phase 4.
+          trainingMode = "recent";
+          log.warn(
+            { ...ctx, dropped: all.dropped },
+            "training over the size budget and search found nothing; oldest-edited entries left out",
+          );
+        }
+      }
+
+      let older: string[] = [];
+      const oldestRecent = recent[0];
+      if (hasOlder && canSearch && oldestRecent) {
+        // Ask for extra: matches inside the last-15 window are dropped.
+        const matches = await deps.search
+          .searchHistory(group.id, query, OLDER_MATCHES + ANSWER_HISTORY)
+          .catch((error: unknown) => {
+            log.error({ err: error, ...ctx }, "history search failed");
+            return [];
+          });
+        older = formatOlderMessages(matches, oldestRecent.sentAt, settings.timezone);
+      }
+
+      return {
+        training,
+        older,
+        detail: { searchMode, trainingMode, trainingMatches, historyMatches: older.length },
+      };
+    };
 
     try {
       let intent: IntentResult;
@@ -290,19 +388,14 @@ export function createAssistant(deps: AssistantDeps): Assistant {
 
       switch (intent.intent) {
         case "question": {
-          const training = formatTraining(entries);
-          if (training.dropped.length > 0) {
-            log.warn(
-              { ...ctx, dropped: training.dropped },
-              "training over the size budget; oldest-edited entries left out",
-            );
-          }
+          const context = await retrieve(text, recentMessages);
           const answer = await answerQuestion(deps.ai, ai, {
             companyName: settings.companyName,
             botName: settings.botName,
             botInstructions: groupSettings.botInstructions,
-            training: training.text,
+            training: context.training,
             recent: history,
+            older: context.older,
             question: text,
             askerName,
             allowGeneralKnowledge: groupSettings.allowGeneralKnowledge,
@@ -312,14 +405,19 @@ export function createAssistant(deps: AssistantDeps): Assistant {
             await replyAndFinish(TEMPLATES.dontKnow, false, {
               status: "answered",
               action: "answered",
-              detail: { intent: "question", kind: "dont_know" },
+              detail: { intent: "question", kind: "dont_know", ...context.detail },
             });
           } else {
             if (answer.long) log.warn({ ...ctx, chars: answer.text.length }, "long reply");
             await replyAndFinish(answer.text, true, {
               status: "answered",
               action: "answered",
-              detail: { intent: "question", kind: "answer", chars: answer.text.length },
+              detail: {
+                intent: "question",
+                kind: "answer",
+                chars: answer.text.length,
+                ...context.detail,
+              },
             });
           }
           return;

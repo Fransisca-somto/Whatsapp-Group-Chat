@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { formatHistoryLine, formatTraining, stripBotMention } from "./buildContext.ts";
+import {
+  formatHistoryLine,
+  formatOlderMessages,
+  formatTraining,
+  keywordQuery,
+  stripBotMention,
+} from "./buildContext.ts";
 
 const bot = { jid: "2348000000000@s.whatsapp.net", lid: "11112222@lid" };
 
@@ -67,5 +73,54 @@ describe("stripBotMention", () => {
 
   it("returns empty text for a bare tag", () => {
     expect(stripBotMention("@11112222", bot)).toBe("");
+  });
+});
+
+describe("keywordQuery", () => {
+  it("keeps the meaningful words, joined with or", () => {
+    expect(keywordQuery("What did we decide about the weekly reports?")).toBe(
+      "decide or weekly or reports",
+    );
+  });
+
+  it("drops short words, repeats and search syntax", () => {
+    expect(keywordQuery('"reports" -friday OR reports, is it ok?')).toBe("reports or friday");
+  });
+
+  it("keeps non-English letters and numbers", () => {
+    expect(keywordQuery("Où est la réunion 2026?")).toBe("est or réunion or 2026");
+  });
+
+  it("is empty when nothing meaningful is left", () => {
+    expect(keywordQuery("what is it?")).toBe("");
+  });
+});
+
+describe("formatOlderMessages", () => {
+  const match = (id: string, sentAt: string, score: number) => ({
+    waMessageId: id,
+    senderName: id === "m2" ? null : "Ada",
+    senderPhoneE164: "+2348012345678",
+    body: `message ${id}`,
+    sentAt,
+    score,
+  });
+  const matches = [
+    match("m1", "2026-10-05T08:00:00Z", 0.03), // best match
+    match("m2", "2026-10-01T08:00:00Z", 0.02),
+    match("m3", "2026-10-20T08:00:00Z", 0.01), // inside the last-15 window
+  ];
+
+  it("drops matches inside the recent window and shows the rest oldest first", () => {
+    expect(formatOlderMessages(matches, "2026-10-19T00:00:00Z", "Africa/Lagos")).toEqual([
+      "[Thu 1 Oct 9:00 AM] +2348012345678: message m2",
+      "[Mon 5 Oct 9:00 AM] Ada: message m1",
+    ]);
+  });
+
+  it("keeps only the best matches up to the limit", () => {
+    expect(formatOlderMessages(matches, "2026-10-19T00:00:00Z", "Africa/Lagos", 1)).toEqual([
+      "[Mon 5 Oct 9:00 AM] Ada: message m1",
+    ]);
   });
 });

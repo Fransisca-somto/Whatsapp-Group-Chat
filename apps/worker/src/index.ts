@@ -19,6 +19,7 @@ import { createKnowledgeRepo } from "./db/knowledgeRepo.ts";
 import { createLockRepo } from "./db/lockRepo.ts";
 import { createMessagesRepo } from "./db/messagesRepo.ts";
 import { createPairingRepo } from "./db/pairingRepo.ts";
+import { createSearchRepo } from "./db/searchRepo.ts";
 import { createServiceClient } from "./db/supabase.ts";
 import { createUsageRepo } from "./db/usageRepo.ts";
 import { createEmbeddingJob, type EmbeddingJob } from "./embeddings/embeddingJob.ts";
@@ -103,6 +104,8 @@ function main() {
     groups: groupsRepo,
     messages: messagesRepo,
     knowledge: createKnowledgeRepo(db),
+    search: createSearchRepo(db),
+    embeddings,
     usage: usageRepo,
     settings: aiSettings,
     audit: auditRepo,

@@ -10,6 +10,7 @@ const INPUT = {
   botInstructions: null,
   training: "### IT\nCall IT.",
   recent: [],
+  older: [],
   question: "My mouse is not working",
   askerName: "Tunde",
   allowGeneralKnowledge: true,

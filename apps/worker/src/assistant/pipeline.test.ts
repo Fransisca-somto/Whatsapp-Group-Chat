@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { InboundGroupMessage } from "@soft-agent-support/shared";
 
+import { EMBEDDING_DIMENSIONS, type EmbeddingsClient } from "../ai/embeddings.ts";
+
 import {
   OpenRouterError,
   type ChatRequest,
@@ -13,6 +15,7 @@ import {
 import type { AssistantSettings } from "../db/aiSettingsRepo.ts";
 import type { GroupAssistantSettings, GroupRecord } from "../db/groupsRepo.ts";
 import type { TrainingEntry } from "../db/knowledgeRepo.ts";
+import type { HistoryMatch, SearchQuery, SearchStore, TrainingMatch } from "../db/searchRepo.ts";
 import type { UsageEntry } from "../db/usageRepo.ts";
 import { memoryAudit, memoryMessages } from "../ingest/testStores.ts";
 import type { OutgoingMessage } from "../whatsapp/sendQueue.ts";
@@ -64,6 +67,11 @@ type Options = {
   training?: TrainingEntry[];
   repliesToday?: number;
   sendFails?: boolean;
+  /** Messages already in the group before the tagged one, oldest first. */
+  earlier?: { body: string; sentAt: Date }[];
+  historyMatches?: HistoryMatch[];
+  trainingMatches?: TrainingMatch[];
+  embedFails?: boolean;
 };
 
 function setup(options: Options = {}) {
@@ -73,6 +81,26 @@ function setup(options: Options = {}) {
   const sent: OutgoingMessage[] = [];
   const listActive = vi.fn(() => Promise.resolve(options.training ?? TRAINING));
   const requests: ChatRequest[] = [];
+  const searches: { kind: "history" | "training"; groupId: string; query: SearchQuery }[] = [];
+  const search: SearchStore = {
+    searchHistory: (groupId, query) => {
+      searches.push({ kind: "history", groupId, query });
+      return Promise.resolve(options.historyMatches ?? []);
+    },
+    searchTraining: (groupId, query) => {
+      searches.push({ kind: "training", groupId, query });
+      return Promise.resolve(options.trainingMatches ?? []);
+    },
+  };
+  const embed = vi.fn<EmbeddingsClient["embed"]>(() =>
+    options.embedFails
+      ? Promise.reject(new OpenRouterError("no_credits", 402, "Insufficient credits"))
+      : Promise.resolve({
+          vectors: [new Array<number>(EMBEDDING_DIMENSIONS).fill(0.1)],
+          inputTokens: 8,
+          costUsd: 0.0000002,
+        }),
+  );
   const ai: OpenRouterClient = {
     chat: vi.fn((request: ChatRequest) => {
       requests.push(request);
@@ -97,6 +125,8 @@ function setup(options: Options = {}) {
     },
     messages: messages.store,
     knowledge: { listActive },
+    search,
+    embeddings: { embed },
     usage: {
       record: (entry) => {
         usage.push(entry);
@@ -123,6 +153,22 @@ function setup(options: Options = {}) {
   const group = { ...GROUP, ...options.group };
 
   let id = 0;
+  for (const [i, earlier] of (options.earlier ?? []).entries()) {
+    void messages.store.insertIfNew({
+      groupId: group.id,
+      waMessageId: `E${i}`,
+      senderJid: "55443322@lid",
+      senderPhoneE164: "+2348099999999",
+      senderName: "Bola",
+      isFromBot: false,
+      type: "text",
+      body: earlier.body,
+      quotedWaMessageId: null,
+      mentionsBot: false,
+      sentAt: earlier.sentAt,
+      handledStatus: null,
+    });
+  }
   /** Stores a tagged message the way ingest does, then runs the pipeline on it. */
   const ask = async (body: string, extra: Partial<InboundGroupMessage> = {}) => {
     const message: InboundGroupMessage = {
@@ -163,7 +209,7 @@ function setup(options: Options = {}) {
     };
   };
 
-  return { ask, sent, audit, usage, messages, requests, listActive, ai };
+  return { ask, sent, audit, usage, messages, requests, listActive, ai, searches, embed };
 }
 
 describe("assistant pipeline", () => {
@@ -361,6 +407,126 @@ describe("assistant pipeline", () => {
     expect(t.audit.entries.at(-1)).toMatchObject({
       action: "send_failed",
       detail: { intended: "answered" },
+    });
+  });
+
+  describe("search (Phase 4)", () => {
+    /** 15 chat messages from the last hour, so anything older is outside the window. */
+    const fullWindow = Array.from({ length: 15 }, (_, i) => ({
+      body: `chat message ${i}`,
+      sentAt: new Date(NOW - 60 * 60_000 + i * 60_000),
+    }));
+    const bigTraining = Array.from({ length: 3 }, (_, i) => ({
+      title: `Handbook part ${i}`,
+      content: "x".repeat(5_000),
+      updatedAt: "2026-10-21T10:00:00Z",
+    }));
+    const answerPrompt = (t: ReturnType<typeof setup>) =>
+      t.requests.find((r) => !r.messages[0]?.content.startsWith("You classify"))?.messages[1]
+        ?.content ?? "";
+
+    it("does not search when the training fits and the history is all recent", async () => {
+      const t = setup();
+      await t.ask("@11112222 what time do we open?");
+      expect(t.embed).not.toHaveBeenCalled();
+      expect(t.searches).toEqual([]);
+      expect(t.audit.entries.at(-1)?.detail).toMatchObject({
+        searchMode: "none",
+        trainingMode: "all",
+        historyMatches: 0,
+      });
+    });
+
+    it("adds older messages found in this group, outside the last-15 window", async () => {
+      const t = setup({
+        earlier: fullWindow,
+        historyMatches: [
+          {
+            waMessageId: "OLD1",
+            senderName: "Ada",
+            senderPhoneE164: null,
+            body: "Agreed, weekly reports on Friday from now on",
+            sentAt: "2026-10-05T08:00:00Z",
+            score: 0.03,
+          },
+          {
+            waMessageId: "E14",
+            senderName: "Bola",
+            senderPhoneE164: null,
+            body: "chat message 14",
+            sentAt: new Date(NOW - 60 * 60_000 + 14 * 60_000).toISOString(),
+            score: 0.02,
+          },
+        ],
+      });
+      await t.ask("@11112222 what did we decide about the weekly reports?");
+
+      expect(t.embed).toHaveBeenCalledWith(SETTINGS.apiKey, [
+        "what did we decide about the weekly reports?",
+      ]);
+      expect(t.searches).toHaveLength(1);
+      expect(t.searches[0]).toMatchObject({
+        kind: "history",
+        groupId: "g1",
+        query: { keywords: "decide or weekly or reports" },
+      });
+      expect(t.searches[0]?.query.embedding).toHaveLength(1536);
+      expect(answerPrompt(t)).toContain(
+        "<older_messages>\n[Mon 5 Oct 9:00 AM] Ada: Agreed, weekly reports on Friday from now on\n</older_messages>",
+      );
+      expect(t.audit.entries.at(-1)?.detail).toMatchObject({
+        searchMode: "hybrid",
+        trainingMode: "all",
+        historyMatches: 1,
+        models: [SETTINGS.chatModel],
+      });
+      // The question's embedding is counted with the day's usage.
+      expect(t.usage[0]?.inputTokens).toBe(2008);
+    });
+
+    it("sends the best training matches when the training is over the budget", async () => {
+      const t = setup({
+        training: bigTraining,
+        trainingMatches: [{ title: "Leave policy", content: "Ask HR.", score: 0.03 }],
+      });
+      await t.ask("@11112222 how do I request leave?");
+
+      expect(t.searches.map((s) => [s.kind, s.groupId])).toEqual([["training", "g1"]]);
+      expect(answerPrompt(t)).toContain("<training>\n### Leave policy\nAsk HR.\n</training>");
+      expect(t.audit.entries.at(-1)?.detail).toMatchObject({
+        trainingMode: "search",
+        trainingMatches: 1,
+      });
+    });
+
+    it("keeps the most recently edited training when search finds nothing", async () => {
+      const t = setup({ training: bigTraining, trainingMatches: [] });
+      await t.ask("@11112222 how do I request leave?");
+      expect(answerPrompt(t)).toContain("### Handbook part 0");
+      expect(answerPrompt(t)).not.toContain("### Handbook part 2");
+      expect(t.audit.entries.at(-1)?.detail).toMatchObject({ trainingMode: "recent" });
+    });
+
+    it("falls back to keyword search when the embedding fails, and still answers", async () => {
+      const t = setup({ earlier: fullWindow, embedFails: true });
+      const { row } = await t.ask("@11112222 when are the weekly reports due?");
+
+      expect(t.searches).toEqual([
+        {
+          kind: "history",
+          groupId: "g1",
+          query: { embedding: null, keywords: "weekly or reports or due" },
+        },
+      ]);
+      expect(row()?.handledStatus).toBe("answered");
+      expect(t.audit.entries.at(-1)?.detail).toMatchObject({ searchMode: "keyword" });
+    });
+
+    it("never embeds or searches for smalltalk", async () => {
+      const t = setup({ earlier: fullWindow, intent: '{"intent":"smalltalk"}', answer: "Hi!" });
+      await t.ask("@11112222 good morning everyone");
+      expect(t.embed).not.toHaveBeenCalled();
+      expect(t.searches).toEqual([]);
     });
   });
 });
