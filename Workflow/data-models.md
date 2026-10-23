@@ -151,10 +151,10 @@ Partial unique index: one `awaiting` row per (`group_id`, `requester_jid`). A ne
 | id | uuid PK | |
 | group_id | uuid not null | FK → groups |
 | kind | text not null | `reminder`,`announcement` |
-| body | text not null | |
+| body | text not null | 1–2,000 chars (check, 0012) |
 | due_at | timestamptz not null | |
-| recurrence_rule | text | RFC 5545 RRULE; null = one-off. Dashboard-only. |
-| parent_post_id | uuid | FK → scheduled_posts; set on generated recurrences |
+| recurrence_rule | text | RFC 5545 RRULE; null = one-off. Dashboard-only. Only the presets in `packages/shared/src/recurrence.ts` are used: `FREQ=DAILY`, `FREQ=WEEKLY;BYDAY=…` (weekdays or chosen days), `FREQ=MONTHLY;BYMONTHDAY=1..28` or `-1` (last day) (ADR-033) |
+| parent_post_id | uuid | FK → scheduled_posts; on generated recurrences, the **first** post of the series |
 | status | text not null default 'scheduled' | see state machine below |
 | created_via | text not null | `dashboard`,`group` |
 | created_by_user_id | uuid | FK → dashboard_users (dashboard) |
@@ -165,20 +165,25 @@ Partial unique index: one `awaiting` row per (`group_id`, `requester_jid`). A ne
 | sent_late | boolean not null default false | |
 | wa_message_id | text | Set after successful send |
 | last_error | text | |
+| dismissed_at | timestamptz | Set when an admin dismisses a failed / uncertain / skipped post from Needs attention (0012, P18) |
 
-Index: (`status`, `due_at`) where status = 'scheduled'.
+Indexes: (`status`, `due_at`) where status = 'scheduled'; unique `scheduled_posts_one_upcoming_per_series` on `(coalesce(parent_post_id, id))` where `status = 'scheduled' and recurrence_rule is not null` (a series has at most one waiting post, so it can never fork; 0012); (`due_at desc`) where status is `failed` / `delivery_uncertain` / `skipped_late` and `dismissed_at` is null (Needs attention list, 0012).
 
 **Status state machine**
 ```
 scheduled ──claim──► sending ──ok──► sent
-    │                   │
-    │                   ├──send error──► failed
-    │                   └──crash (found on boot)──► delivery_uncertain
-    ├──due_at older than 2h when found──► skipped_late
+    ▲                   │
+    │                   ├──not connected / worker stopping (nothing reached WhatsApp)──► scheduled
+    │                   ├──WhatsApp rejected it──► failed
+    │                   ├──no confirmation within 15 s──► delivery_uncertain
+    │                   └──left in sending by a stopped session (found on leader start)──► delivery_uncertain
+    ├──due_at older than 2h when found (active groups)──► skipped_late
     └──dashboard──► cancelled
-delivery_uncertain / failed ──dashboard Resend──► scheduled
+delivery_uncertain / failed / skipped_late ──dashboard Resend──► scheduled (due now, as a one-off)
+delivery_uncertain / failed / skipped_late ──dashboard Dismiss──► dismissed_at set (History)
 ```
-Groups that become `removed` or `paused`: their `scheduled` posts are left as-is and not claimed until the group is `active` again.
+Groups that become `removed` or `paused`: their `scheduled` posts are left as-is and not claimed until the group is `active` again; on resume, anything more than 2 h late is skipped (ADR-034).
+A repeating series has one waiting row at a time: when a post leaves `scheduled` for good (sent, failed, uncertain, skipped), the worker inserts the next one, the first date **after now** (ADR-033). Cancelling the waiting post ends the series. A resent post loses its `recurrence_rule` (the series has already moved on).
 
 ### 3.10 `bot_actions` (audit log, append-only)
 | Column | Type | Notes |

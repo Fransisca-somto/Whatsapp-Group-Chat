@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 4 — Deep History (Phase 0–3 ✅) |
-| **Current task** | 4.1–4.4 built on branch `phase-4`; migration 0011 applied, isolation check passed, backlog indexed, live test passed, types regenerated. Next: merge `phase-4`; owner tests retention live around 2026-11-23 |
+| **Current phase** | Phase 5 — Scheduler (Phase 0–3 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
+| **Current task** | 5.1–5.5 built on branch `phase-5` (plan: `Workflow/Phases/07-Scheduler.md`). Next: owner applies migration 0012, regenerates types, restarts the worker and runs the live test |
 | **Blockers** | None |
-| **Last updated** | 2026-10-23 (Phase 4 built, migration 0011) |
+| **Last updated** | 2026-10-23 (Phase 5 built, migration 0012) |
 
 ---
 
@@ -66,12 +66,13 @@ Plan: `Workflow/Phases/06-Deep-History.md` (owner-approved 2026-10-23, P8–P13)
 - 🟦 4.4 Retention job honoring `groups.retention_days`. Built (database `pg_cron` job, migration 0011 applied). Live check deferred by the owner to about 2026-11-23: nothing is old enough to delete yet (Softwirelex group keeps 162 days).
 - **Exit criteria:** "what did we decide about the reports on Monday?" finds the right messages by meaning and by keyword; no cross-group leakage (tested).
 
-### Phase 5 — Scheduler & Dashboard Scheduling ⬜
-- ⬜ 5.1 `/schedule` page: create / edit / cancel announcements and reminders, including recurring.
-- ⬜ 5.2 30-second poller with atomic claiming.
-- ⬜ 5.3 Late handling (≤2 h send with note; >2 h skip) and delivery-uncertain recovery.
-- ⬜ 5.4 Recurrence: next occurrence created after each send.
-- ⬜ 5.5 "Needs attention" tab with Resend for uncertain items.
+### Phase 5 — Scheduler & Dashboard Scheduling 🟦
+Plan: `Workflow/Phases/07-Scheduler.md` (owner-approved 2026-10-23, P14–P20; started before Phase 4's retention check with the owner's approval).
+- 🟦 5.1 `/schedule` page: create / edit / cancel announcements and reminders, including recurring. Built; awaiting migration 0012 and the live test.
+- 🟦 5.2 30-second poller with atomic claiming. Built; awaiting the live test.
+- 🟦 5.3 Late handling (≤2 h send with note; >2 h skip) and delivery-uncertain recovery. Built; awaiting the live test.
+- 🟦 5.4 Recurrence: next occurrence created after each send. Built; awaiting the live test.
+- 🟦 5.5 "Needs attention" tab with Resend for uncertain items. Built (with Dismiss); awaiting the live test.
 - **Exit criteria:** posts arrive within 30 s of due time; crash-and-restart never produces a duplicate.
 
 ### Phase 6 — Tag-to-Create Reminders ⬜
@@ -193,6 +194,12 @@ Context: Phase 4 needs embeddings. A live test showed OpenRouter's embeddings AP
 **ADR-032 — Message retention runs in the database · 2026-10-23 · Accepted (owner decision P12)**
 Decision: `purge_expired_messages()` deletes each group's messages older than its `retention_days`, run daily at 03:00 UTC by the `pg_cron` job `purge-expired-messages` (migration 0011), writing one `messages_purged` audit row per group cleaned. Consequences: retention works even when the worker is down; groups without a retention setting keep everything (D10 unchanged).
 
+**ADR-033 — Repeating posts: RRULE presets, one waiting post per series · 2026-10-23 · Accepted (owner decisions P14, P19)**
+Decision: Repeats are limited to Daily, Weekdays, Weekly on chosen days, and Monthly on day 1–28 or the last day, stored as standard RRULE text in `scheduled_posts.recurrence_rule` and computed by our own code (`packages/shared/src/recurrence.ts`, no library) at the same wall-clock time in the company timezone. No end date: a series runs until its waiting post is cancelled. A series has exactly one waiting row (unique index, migration 0012); the next one is created when a post leaves `scheduled` for good, at the first matching date after now, so an outage never fires a backlog. Consequences: simple edits and cancels; days 29–31 and custom rules are not offered; changing the company timezone moves a series from its next date, not posts already scheduled.
+
+**ADR-034 — Scheduler failures follow what WhatsApp saw · 2026-10-23 · Accepted (owner decision P17; amends the scheduled_posts state machine, keeps ADR-011)**
+Decision: The scheduler claims only while WhatsApp is open. A post that never reached WhatsApp (not connected, worker stopping) goes back to `scheduled`; one WhatsApp rejected is `failed`; one without confirmation within 15 s, or left `sending` by a stopped session, is `delivery_uncertain`. Nothing is resent automatically; Needs attention offers Resend (as a one-off due now) and Dismiss (`dismissed_at`, migration 0012). Posts of paused or removed groups wait and are skipped if more than 2 h late when the group is active again. Consequences: a short disconnect never fails a post and never risks a duplicate; uncertain posts need a person to check the group.
+
 ---
 
 ## Open Defaults to Confirm
@@ -224,6 +231,17 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-23 — Claude (Phase 5 built: scheduler)
+- Task(s): 5.1–5.5 on branch `phase-5` (from `main` after PR #4). Plan approved with P14–P20 as written, and starting before Phase 4's retention check.
+- Done (shared): `recurrence.ts` (presets ↔ RRULE, `nextOccurrence` in the company timezone, `describeRepeat`), `scheduledPosts.ts` (`formatScheduledPost` "*Reminder:* …", `resolveDueAt` 1 min–1 year, `ATTENTION_STATUSES`), `schemas/scheduledPost.ts`.
+- Done (dashboard): `/schedule` (Upcoming · Needs attention · History, group filter, New post), `ScheduledPostDialog` with repeat options and live preview, `<DateTimePicker>`, `server/actions/schedule.ts` (create, update, cancel, resend, dismiss; all conditional on status; audited), `server/schedule.ts` loaders, group page **Scheduled** tab, Overview **Upcoming posts** card, sidebar Needs attention count, Audit log labels for `post_*` actions.
+- Done (worker): `scheduler/scheduler.ts` + `db/scheduledPostsRepo.ts` (start-of-session uncertain recovery, 2 h skip for active groups, claim 10 at a time, 3 s apart, late note after 2 min, outcomes per P17, sent posts stored as bot messages, next date of a series); `ConnectionManager.isOpen()` (new, so the scheduler only claims while connected); `lateNote()` template; wired into the leader session (stopped before the send queue).
+- Migration `0012_scheduler.sql`: `dismissed_at`, one-waiting-post-per-series unique index, 2,000-character check, Needs attention index. `database.types.ts` edited by hand to match (one column).
+- Plan deviations, small: 5.2–5.4 are one commit (one module); 5.5's Needs attention UI was built with 5.1. Resend also covers `skipped_late` posts (safe: never sent) and turns a resent post into a one-off, since its series has already moved on. `<DateTimePicker>` is tested through the dialog tests rather than its own file. `ConnectionManager.isOpen()` in `whatsapp/connection.ts` was not in the plan's file list but is needed for "only while connected".
+- Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, tests (shared 82, worker 226, dashboard 113), dashboard build: all pass.
+- **Needs the owner:** apply 0012 (`pnpm supabase db push`), regenerate types and confirm no real `git diff`, restart the worker, then the live test in the plan's Verify section.
+- Changed docs: `progress.md`, `data-models.md`, `api-interfaces.md`, `architecture.md`, `ui-context.md`, `Phases/07-Scheduler.md`.
 
 ### 2026-10-23 — Claude (Phase 4 built: search and retention)
 - Task(s): 4.1–4.4 on branch `phase-4` (from `main` after PR #3 merged). Plan approved with P8–P13 as written.

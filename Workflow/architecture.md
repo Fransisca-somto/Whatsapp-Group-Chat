@@ -52,7 +52,7 @@
 │           ├── ingest/         # Message intake, storage, dedupe, tag detection
 │           ├── assistant/      # Intent, answer generation, retrieval
 │           ├── reminders/      # Tag-to-create flow, confirmation state machine
-│           ├── scheduler/      # 30s poller, claiming, sending, recurrence
+│           ├── scheduler/      # 30s poller (leader-only, only while WhatsApp is open): late skips, claiming, sending, next dates of repeating posts
 │           ├── pairing/        # Pair / relink request handling
 │           ├── health/         # Heartbeat, alerts
 │           ├── embeddings/     # Background search indexing job (leader-only, every 30 s)

@@ -1,7 +1,7 @@
 # Step 07 — Phase 5: Scheduler and Dashboard Scheduling
 
 > Covers `progress.md` Phase 5, tasks **5.1–5.5**.
-> Status: **plan, awaiting owner approval.** No code is written until the owner approves (CLAUDE.md §1).
+> Status: **approved 2026-10-23 (P14–P20 as written, and starting before Phase 4's retention check); built on `phase-5`.**
 > Branch: `phase-5`, created from `main` (Phase 4 merged in PR #4). One commit per task.
 > Phase rule: Phase 4 is not fully ✅ (task 4.4 retention waits for the owner's live check around 2026-11-23). Starting Phase 5 now needs the owner's explicit approval; the retention check does not depend on anything here.
 
