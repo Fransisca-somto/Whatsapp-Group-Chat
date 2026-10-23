@@ -282,6 +282,7 @@ export type Database = {
           body: string | null
           created_at: string
           embedding: string | null
+          embedding_attempts: number
           embedding_status: string
           group_id: string
           handled_status: string | null
@@ -302,6 +303,7 @@ export type Database = {
           body?: string | null
           created_at?: string
           embedding?: string | null
+          embedding_attempts?: number
           embedding_status?: string
           group_id: string
           handled_status?: string | null
@@ -322,6 +324,7 @@ export type Database = {
           body?: string | null
           created_at?: string
           embedding?: string | null
+          embedding_attempts?: number
           embedding_status?: string
           group_id?: string
           handled_status?: string | null
@@ -415,6 +418,7 @@ export type Database = {
           content: string
           created_at: string
           embedding: string | null
+          embedding_attempts: number
           embedding_status: string
           group_id: string
           id: string
@@ -428,6 +432,7 @@ export type Database = {
           content: string
           created_at?: string
           embedding?: string | null
+          embedding_attempts?: number
           embedding_status?: string
           group_id: string
           id?: string
@@ -441,6 +446,7 @@ export type Database = {
           content?: string
           created_at?: string
           embedding?: string | null
+          embedding_attempts?: number
           embedding_status?: string
           group_id?: string
           id?: string
@@ -796,6 +802,7 @@ export type Database = {
       }
       current_dashboard_role: { Args: never; Returns: string }
       get_openrouter_key: { Args: never; Returns: string }
+      purge_expired_messages: { Args: never; Returns: number }
       record_ai_usage: {
         Args: {
           p_cost_usd: number
@@ -819,6 +826,7 @@ export type Database = {
           id: string
           score: number
           sender_name: string
+          sender_phone_e164: string
           sent_at: string
           wa_message_id: string
         }[]

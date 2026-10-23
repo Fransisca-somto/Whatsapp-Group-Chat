@@ -27,11 +27,17 @@ describe("parseEnv", () => {
     const env = parseEnv(valid);
     expect(env.SUPABASE_URL).toBe(valid.SUPABASE_URL);
     expect(env.LOG_LEVEL).toBe("info");
-    expect(env.EMBEDDINGS_MODEL).toBe("text-embedding-3-small");
-    // The OpenRouter key is set on the dashboard (ADR-027); a leftover variable is ignored.
-    expect(parseEnv({ ...valid, OPENROUTER_API_KEY: "sk-or-old" })).not.toHaveProperty(
-      "OPENROUTER_API_KEY",
-    );
+    // The OpenRouter key is set on the dashboard (ADR-027) and search uses it with a fixed
+    // model (ADR-031); leftover variables are ignored.
+    const leftover = parseEnv({
+      ...valid,
+      OPENROUTER_API_KEY: "sk-or-old",
+      EMBEDDINGS_API_KEY: "sk-old",
+      EMBEDDINGS_MODEL: "text-embedding-3-small",
+    });
+    expect(leftover).not.toHaveProperty("OPENROUTER_API_KEY");
+    expect(leftover).not.toHaveProperty("EMBEDDINGS_API_KEY");
+    expect(leftover).not.toHaveProperty("EMBEDDINGS_MODEL");
   });
 
   it("lists every missing required variable at once", () => {
