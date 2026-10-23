@@ -11,12 +11,14 @@ import { isNavItemActive, NAV_ITEMS } from "./navItems";
 
 type SidebarNavProps = {
   role: DashboardRole;
+  /** Counts shown next to links, by href; 0 or missing shows nothing. */
+  badges?: Record<string, number>;
   /** Called after a link is chosen, so the mobile drawer can close. */
   onNavigate?: () => void;
 };
 
 /** Navigation links. Owner-only items are hidden for staff; RLS and server actions still enforce access. */
-export function SidebarNav({ role, onNavigate }: SidebarNavProps) {
+export function SidebarNav({ role, badges, onNavigate }: SidebarNavProps) {
   const pathname = usePathname();
   const items = NAV_ITEMS.filter((item) => role === "owner" || !item.ownerOnly);
 
@@ -25,6 +27,7 @@ export function SidebarNav({ role, onNavigate }: SidebarNavProps) {
       {items.map((item) => {
         const active = isNavItemActive(item, pathname);
         const Icon = item.icon;
+        const count = badges?.[item.href] ?? 0;
         return (
           <Link
             key={item.href}
@@ -39,7 +42,13 @@ export function SidebarNav({ role, onNavigate }: SidebarNavProps) {
             )}
           >
             <Icon aria-hidden="true" className="size-4 shrink-0" />
-            {item.label}
+            <span className="flex-1">{item.label}</span>
+            {count > 0 && (
+              <span className="rounded-full bg-status-warn/15 px-1.5 text-xs font-semibold text-status-warn">
+                {count}
+                <span className="sr-only"> need attention</span>
+              </span>
+            )}
           </Link>
         );
       })}

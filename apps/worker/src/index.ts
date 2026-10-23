@@ -1,7 +1,7 @@
 // Worker boot (architecture.md §2): validate env, start logging, take the leader lock, then
 // start leader-only modules: session state, the WhatsApp connection, the pairing watcher, the
-// heartbeat, owner alerts, group/message ingestion, the assistant that answers tags and the
-// background search indexing.
+// heartbeat, owner alerts, group/message ingestion, the assistant that answers tags, the
+// background search indexing and the scheduler that posts reminders and announcements.
 import { randomUUID } from "node:crypto";
 
 import { createEmbeddingsClient } from "./ai/embeddings.ts";
@@ -19,6 +19,7 @@ import { createKnowledgeRepo } from "./db/knowledgeRepo.ts";
 import { createLockRepo } from "./db/lockRepo.ts";
 import { createMessagesRepo } from "./db/messagesRepo.ts";
 import { createPairingRepo } from "./db/pairingRepo.ts";
+import { createScheduledPostsRepo } from "./db/scheduledPostsRepo.ts";
 import { createSearchRepo } from "./db/searchRepo.ts";
 import { createServiceClient } from "./db/supabase.ts";
 import { createUsageRepo } from "./db/usageRepo.ts";
@@ -32,6 +33,7 @@ import { createHeartbeat, type Heartbeat } from "./health/heartbeat.ts";
 import { botIdentity, createIngest } from "./ingest/ingest.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { createPairingWatcher, type PairingWatcher } from "./pairing/pairingWatcher.ts";
+import { createScheduler, type Scheduler } from "./scheduler/scheduler.ts";
 import { createSupabaseAuthState } from "./whatsapp/authState.ts";
 import {
   createBaileysSocketFactory,
@@ -39,6 +41,7 @@ import {
   type ConnectionManager,
   type SocketLike,
 } from "./whatsapp/connection.ts";
+import { phoneFromJid } from "./whatsapp/jids.ts";
 import { createSendQueue, type SendQueue } from "./whatsapp/sendQueue.ts";
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -142,10 +145,13 @@ function main() {
     let pairing: PairingWatcher | undefined;
     let heartbeat: Heartbeat | undefined;
     let indexing: EmbeddingJob | undefined;
+    let scheduler: Scheduler | undefined;
 
     const stopAll = async () => {
       // Lock lost: never write session state again from this instance.
       if (!lock.isHeld()) auth.discardPending();
+      // Before the send queue stops, so a post in flight is finished or put back, never lost.
+      await scheduler?.stop();
       sendQueue?.stop();
       sendQueue = null;
       currentSocket = null;
@@ -203,6 +209,31 @@ function main() {
       });
       pairing = createPairingWatcher({ store: pairingRepo, connection, logger });
       heartbeat = createHeartbeat({ store: connectionRepo, instanceId, logger });
+      scheduler = createScheduler({
+        store: createScheduledPostsRepo(db),
+        send: sendQueue,
+        isConnected: () => lock.isHeld() && !signal.aborted && connection!.isOpen(),
+        settings: aiSettings,
+        audit: auditRepo,
+        recordBotMessage: async (groupId, waMessageId, text) => {
+          const bot = currentSocket ? botIdentity(currentSocket) : { jid: null, lid: null };
+          await messagesRepo.insertIfNew({
+            groupId,
+            waMessageId,
+            senderJid: bot.jid ?? bot.lid ?? "bot",
+            senderPhoneE164: phoneFromJid(bot.jid),
+            senderName: null,
+            isFromBot: true,
+            type: "text",
+            body: text,
+            quotedWaMessageId: null,
+            mentionsBot: false,
+            sentAt: new Date(),
+            handledStatus: null,
+          });
+        },
+        logger,
+      });
       indexing = createEmbeddingJob({
         store: createEmbeddingsRepo(db),
         settings: aiSettings,
@@ -218,6 +249,8 @@ function main() {
       await heartbeat.start();
       checkpoint();
       indexing.start();
+      await scheduler.start();
+      checkpoint();
       return stopAll;
     } catch (error) {
       // Never leave a half-started session (above all, an open socket) behind.

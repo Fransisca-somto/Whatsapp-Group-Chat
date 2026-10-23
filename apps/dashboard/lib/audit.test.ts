@@ -42,6 +42,22 @@ describe("audit labels", () => {
       auditSummary({ action: "messages_purged", detail: { count: 1250, retentionDays: 90 } }),
     ).toBe("1,250 messages older than 90 days");
     expect(actionLabel("messages_purged")).toBe("Old messages deleted");
+    expect(actionLabel("post_uncertain")).toBe("Delivery uncertain");
+    expect(auditSummary({ action: "post_sent", detail: { kind: "reminder", late: true } })).toBe(
+      "reminder · sent late",
+    );
+    expect(
+      auditSummary({
+        action: "post_cancelled",
+        detail: { kind: "announcement", endedSeries: true },
+      }),
+    ).toBe("announcement · series ended");
+    expect(
+      auditSummary({
+        action: "post_failed",
+        detail: { kind: "reminder", error: "not-authorized" },
+      }),
+    ).toBe("reminder · not-authorized");
     expect(auditSummary({ action: "ai_key_saved", detail: { hint: "7aec" } })).toBe(
       "ends in …7aec",
     );

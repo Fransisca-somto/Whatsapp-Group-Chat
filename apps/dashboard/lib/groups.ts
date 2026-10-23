@@ -5,7 +5,7 @@ export const GROUP_MESSAGES_PAGE = 50;
 
 /** Tabs on the group page, kept in `?tab=`. Lives here, not in the client GroupTabs file, so the
  * server page can read it (a "use client" module only exports components to the server). */
-export const GROUP_TABS = ["settings", "train", "messages"] as const;
+export const GROUP_TABS = ["settings", "train", "messages", "scheduled"] as const;
 export type GroupTab = (typeof GROUP_TABS)[number];
 
 export const GROUP_MESSAGE_COLUMNS =

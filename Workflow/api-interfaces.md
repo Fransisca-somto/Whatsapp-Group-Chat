@@ -67,10 +67,11 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 | `copyTraining` | owner, staff | `CopyTrainingInput { fromGroupId, toGroupId }` (must differ). Inserts independent copies of every source entry, keeping `is_active`. | ✅ `training_copied` (detail `fromGroupId`, `count`) |
 | `updateBotInstructions` | owner, staff | `UpdateBotInstructionsInput { groupId, instructions }` (≤ 1,000 chars; empty clears to null) | ✅ `bot_instructions_updated` (detail `characters`) |
 | `upsertAuthorizedUser` | owner, staff | `{ id?, displayName, phoneE164, allGroups, groupIds[], isActive }` | ✅ |
-| `createScheduledPost` | owner, staff | `ScheduledPostInput { groupId, kind, body, dueAtLocal, recurrenceRule? }` | ✅ |
-| `updateScheduledPost` | owner, staff | `{ id, ...ScheduledPostInput }` (only if status = scheduled) | ✅ |
-| `cancelScheduledPost` | owner, staff | `{ id }` | ✅ |
-| `resendScheduledPost` | owner, staff | `{ id }` (only if `delivery_uncertain` or `failed`) | ✅ |
+| `createScheduledPost` | owner, staff | `ScheduledPostInput { groupId, kind, body (1–2,000), dueAtLocal, repeat: RepeatRule \| null }` (shared `scheduledPostInputSchema`). The group must be `active` or `paused`. `resolveDueAt` converts the time from the company timezone; a repeating post starts on the first matching day at or after it; it must be 1 minute to 1 year ahead. The rule is stored as RRULE text (`repeatRuleToRrule`). | ✅ `post_created` (detail `postId`, `kind`, `dueAt`, `repeat`, `characters`) |
+| `updateScheduledPost` | owner, staff | `{ id, ...ScheduledPostInput }`; conditional on `status = 'scheduled'`, so a claimed post can't be changed ("This post is being sent or has already gone out.") | ✅ `post_updated` |
+| `cancelScheduledPost` | owner, staff | `{ id }`; only while `scheduled`. Cancelling the waiting post of a series ends the series. | ✅ `post_cancelled` (detail `endedSeries`) |
+| `resendScheduledPost` | owner, staff | `{ id }`; only `failed` / `delivery_uncertain` / `skipped_late` → `scheduled`, `due_at = now`, `recurrence_rule = null`, claim and error cleared, `dismissed_at = null`. | ✅ `post_resent` |
+| `dismissScheduledPost` | owner, staff | `{ id }`; only those statuses with `dismissed_at` null → `dismissed_at = now` (moves to History). | ✅ `post_dismissed` |
 | `requestPairing` | owner | `PairingRequestInput { kind, phoneE164 }` (shared `pairingRequestInputSchema`). An already-open request returns "A pairing request is already open. Cancel it first." | ✅ `pairing_requested` / `relink_requested` |
 | `cancelPairing` | owner | `CancelPairingInput { requestId }`; sets `cancelled` only while `requested` / `code_issued` | — |
 | `updateCompanySettings` | owner | `CompanySettings { companyName, botDisplayName, timezone }` (valid IANA zone). `ownerAlertPhone` dropped (unused since ADR-025). | ✅ `company_settings_updated` |
@@ -110,6 +111,8 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 | `skipped_stale` | `failed` | `ageSeconds` (tag older than 5 minutes, P4) |
 
 `models` lists chat models only; the question's embedding is included in `inputTokens` and `costUsd`.
+
+**Scheduler audit actions** (worker, `actor_type = 'system'`, `actor_ref = 'scheduler'`, detail always `postId`, `kind`): `post_sent` (`late`, `waMessageId`), `post_failed` (`error`), `post_uncertain` (`reason`: "WhatsApp did not confirm in time" or "worker stopped while sending"), `post_skipped_late` (`dueAt`).
 
 **Retention audit action** (database, `actor_type = 'system'`, `actor_ref = 'retention'`): `messages_purged`, detail `count`, `retentionDays` (data-models.md §5.7).
 
@@ -224,7 +227,7 @@ Messages from anyone other than the requester never affect the request.
 | `remindersNotYet` | Setting reminders here isn't available yet. Please ask an admin to add it from the dashboard. (P3, until Phase 6) |
 | `rateLimited` | I'm getting a lot of requests. Please try again in a minute. |
 | `aiUnavailable` | Sorry, I can't answer right now. Please try again shortly. |
-| `lateNote` | (Sent late: this was scheduled for {time}.) |
+| `lateNote` | (Sent late: this was scheduled for {time}.) — on a new line under a scheduled post sent more than 2 minutes late; `{time}` is "9:00 AM", or "Fri 23 Oct 11:50 PM" when it was due on another day (`lateNote()` in `assistant/templates.ts`) |
 | `refuse` | Sorry, I can't help with that here. |
 
 ---
@@ -303,19 +306,31 @@ searchTraining(groupId, { embedding | null, keywords }, limit): Promise<Training
 handleReminderIntent(msg, group, draft): Promise<void>;
 handlePossibleConfirmation(msg, group): Promise<boolean>;  // true if consumed
 
-// scheduler/
-tick(): Promise<void>;   // every 30 s: recover, expire pending requests, claim, send, recur
+// scheduler/  (scheduler.ts; db/scheduledPostsRepo.ts)
+createScheduler({ store, send, isConnected, settings, audit, recordBotMessage, logger }) → {
+  start(): Promise<void>;   // marks leftover `sending` rows uncertain, then ticks every 30 s
+  stop(): Promise<void>;    // waits for a tick in progress
+  tick(): Promise<void>;
+};
+// Leader-only; started after the connection, stopped before the send queue.
+// isConnected = lock held && ConnectionManager.isOpen().
 
 // health/
 heartbeat(): Promise<void>; checkAlerts(): Promise<void>;
 ```
 
 ### 8.1 Scheduler tick (exact order)
-1. On first tick after boot only: rows in `sending` with no `wa_message_id` → `delivery_uncertain`.
-2. Expire `pending_reminder_requests` past `expires_at`.
-3. Mark `scheduled` rows with `due_at < now() - 2h` → `skipped_late` (audit).
-4. `claim_due_posts(token)` → for each: send (with `lateNote` if > 2 min late), stagger 3 s; success → `sent` + `wa_message_id`; error → `failed` + `last_error`.
-5. For each sent row with `recurrence_rule`: insert the next occurrence as a new `scheduled` row with `parent_post_id`.
+0. **Start of each leader session** (not every tick): rows still in `sending` → `delivery_uncertain`, `last_error = 'worker stopped while sending'` (audit `post_uncertain`; repeating ones get their next date). Only the leader sends, so a leftover `sending` row belongs to a session that stopped.
+1. Skip the tick unless WhatsApp is open and this instance holds the lock (a short disconnect never fails a post).
+2. *(Phase 6)* Expire `pending_reminder_requests` past `expires_at`.
+3. `scheduled` rows of **active** groups with `due_at < now() - 2h` → `skipped_late` (audit `post_skipped_late`), then their next date if repeating.
+4. `claim_due_posts(token, 10)` (up to 5 batches per tick) → for each, at least **3 s** after the previous post: send through the send queue (no quote, no typing), with `lateNote` on a new line if more than 2 min late. Every finishing update matches the claim token and `sending`.
+   - sent → `sent`, `sent_at`, `wa_message_id`, `sent_late`; stored in `group_messages` as a bot message (so search indexing skips it); audit `post_sent`.
+   - `SendError` `not_connected` / `stopped` (nothing reached WhatsApp) → back to `scheduled`; the rest of the batch too; the tick ends.
+   - `send_failed` (WhatsApp rejected it) → `failed` + `last_error`; audit `post_failed`.
+   - `timeout` or any other error (it may be in the group) → `delivery_uncertain`; audit `post_uncertain`.
+   - Never resent automatically (ADR-011). A database error after a successful send leaves the row `sending`, which step 0 turns into `delivery_uncertain`.
+5. A repeating post that left `scheduled` for good (not one put back) gets the next occurrence: same group, kind, text and rule, `parent_post_id` = the first post of the series, `due_at` = the first matching date **after now** at the series' time of day (P19). The unique index refuses a second waiting row, so a series never forks.
 
 ### 8.2 Concurrency
 Tagged messages are processed through a **per-group serial queue** (one at a time per group, groups in parallel). This guarantees ordered replies and correct confirmation matching.

@@ -17,6 +17,8 @@ import { WorkerStatus } from "./WorkerStatus";
 
 type AppShellProps = {
   user: { displayName: string; role: DashboardRole };
+  /** Counts shown next to sidebar links, by href (e.g. posts needing attention). */
+  navBadges?: Record<string, number>;
   children: React.ReactNode;
 };
 
@@ -30,7 +32,7 @@ function Logo() {
 }
 
 /** Top bar, sidebar (drawer below md) and page frame from ui-context.md §3. */
-export function AppShell({ user, children }: AppShellProps) {
+export function AppShell({ user, navBadges, children }: AppShellProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const pathname = usePathname();
   const pageTitle = NAV_ITEMS.find((item) => isNavItemActive(item, pathname))?.label ?? "";
@@ -68,13 +70,13 @@ export function AppShell({ user, children }: AppShellProps) {
               <Logo />
             </SheetTitle>
           </div>
-          <SidebarNav role={user.role} onNavigate={() => setDrawerOpen(false)} />
+          <SidebarNav role={user.role} badges={navBadges} onNavigate={() => setDrawerOpen(false)} />
         </SheetContent>
       </Sheet>
 
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-60 shrink-0 overflow-y-auto border-r bg-surface md:block">
-          <SidebarNav role={user.role} />
+          <SidebarNav role={user.role} badges={navBadges} />
         </aside>
         <main data-page-scroll className="min-w-0 flex-1 overflow-y-auto p-4 md:p-8">
           <div className="mx-auto max-w-6xl">{children}</div>

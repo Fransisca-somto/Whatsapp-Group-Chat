@@ -1,5 +1,6 @@
 // Fixed bot replies (api-interfaces.md §5.4). Same style as AI answers (ADR-029): one short,
 // plain sentence. Code sends these; the AI never writes them.
+import { chatTimeInTz, localDateInTz, timeOfDayInTz } from "@soft-agent-support/shared";
 
 export const TEMPLATES = {
   /** P5: the answer is not in the group's training or recent chat. */
@@ -17,3 +18,13 @@ export const TEMPLATES = {
   remindersNotYet:
     "Setting reminders here isn't available yet. Please ask an admin to add it from the dashboard.",
 } as const;
+
+/**
+ * Added under a scheduled post sent more than 2 minutes late (api-interfaces.md §5.4), e.g.
+ * "(Sent late: this was scheduled for 9:00 AM.)", with the day when it was not today.
+ */
+export function lateNote(dueAt: Date, sentAt: Date, timeZone: string): string {
+  const sameDay = localDateInTz(dueAt, timeZone) === localDateInTz(sentAt, timeZone);
+  const when = sameDay ? timeOfDayInTz(dueAt, timeZone) : chatTimeInTz(dueAt, timeZone);
+  return `(Sent late: this was scheduled for ${when}.)`;
+}

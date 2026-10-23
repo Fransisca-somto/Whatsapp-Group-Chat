@@ -4,6 +4,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 
+import { GroupScheduleTab } from "@/components/schedule/GroupScheduleTab";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,6 +19,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { TRAINING_COLUMNS, type TrainingEntryView, type TrainingSourceGroup } from "@/lib/training";
 import { requireCurrentUser } from "@/server/currentUser";
+import { loadSchedule } from "@/server/schedule";
 
 import { GroupStatusActions } from "../GroupStatusActions";
 import { GroupMessages } from "./GroupMessages";
@@ -74,6 +76,7 @@ async function GroupContent({ params, searchParams }: Props) {
     trainingResult,
     otherGroupsResult,
     connectionResult,
+    schedule,
   ] = await Promise.all([
     supabase
       .from("groups")
@@ -98,6 +101,7 @@ async function GroupContent({ params, searchParams }: Props) {
     supabase.from("knowledge_entries").select("group_id, groups(name)").neq("group_id", id),
     // The bot's WhatsApp IDs, so "@52055741849776" mentions can show as "@Assistant".
     supabase.from("wa_connection").select("bot_jid, bot_lid").eq("id", 1).maybeSingle(),
+    loadSchedule(id),
   ]);
   if (groupResult.error?.code === INVALID_UUID || (!groupResult.error && !groupResult.data)) {
     notFound();
@@ -149,6 +153,10 @@ async function GroupContent({ params, searchParams }: Props) {
         initialTab={pickTab(tab)}
         badges={{
           train: activeEntries === 0 ? <Badge variant="outline">Not trained</Badge> : undefined,
+          scheduled:
+            schedule.lists.attention.length > 0 ? (
+              <Badge variant="destructive">{schedule.lists.attention.length}</Badge>
+            ) : undefined,
         }}
         panels={{
           settings: (
@@ -175,6 +183,16 @@ async function GroupContent({ params, searchParams }: Props) {
               entries={entries}
               sourceGroups={sourceGroups}
               botInstructions={group.bot_instructions}
+              timeZone={timeZone}
+            />
+          ),
+          scheduled: (
+            <GroupScheduleTab
+              groupId={group.id}
+              canPost={status === "active" || status === "paused"}
+              upcoming={schedule.lists.upcoming}
+              attentionCount={schedule.lists.attention.length}
+              groups={schedule.groups}
               timeZone={timeZone}
             />
           ),

@@ -1,11 +1,15 @@
-import { LayoutDashboard, TriangleAlert } from "lucide-react";
+import { CalendarClock, LayoutDashboard, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { DateTimeInCompanyTz } from "@/components/DateTimeInCompanyTz";
 import { EmptyState } from "@/components/EmptyState";
 import { PageHeader } from "@/components/PageHeader";
+import { Skeleton } from "@/components/ui/skeleton";
+import { kindLabel, repeatLabel } from "@/lib/schedule";
 import { createClient } from "@/lib/supabase/server";
 import { requireCurrentUser } from "@/server/currentUser";
+import { loadScheduleSummary } from "@/server/schedule";
 
 export default function OverviewPage() {
   return (
@@ -15,9 +19,12 @@ export default function OverviewPage() {
         <Suspense fallback={null}>
           <AiSetupNotice />
         </Suspense>
+        <Suspense fallback={<Skeleton className="h-48 w-full rounded-xl" />}>
+          <UpcomingPosts />
+        </Suspense>
         <EmptyState
           icon={LayoutDashboard}
-          message="Worker health, groups and upcoming posts will appear here once the worker is connected."
+          message="Worker health and groups will appear here in a later phase."
         />
       </div>
     </>
@@ -59,5 +66,55 @@ async function AiSetupNotice() {
         </p>
       </div>
     </div>
+  );
+}
+
+/** The next 5 posts and how many need attention (ui-context.md §4 Overview, P20). */
+async function UpcomingPosts() {
+  await requireCurrentUser();
+  const { timeZone, next, attentionCount } = await loadScheduleSummary();
+
+  return (
+    <section aria-labelledby="upcoming-title" className="rounded-xl border bg-surface p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 id="upcoming-title" className="text-lg font-semibold">
+          Upcoming posts
+        </h2>
+        <Link href="/schedule" className="text-sm text-primary underline-offset-4 hover:underline">
+          All reminders &amp; announcements
+        </Link>
+      </div>
+      {attentionCount > 0 && (
+        <Link
+          href="/schedule?tab=attention"
+          className="mb-4 flex items-center gap-2 rounded-lg border border-status-warn/40 p-3 text-sm hover:bg-accent"
+        >
+          <TriangleAlert aria-hidden="true" className="size-4 shrink-0 text-status-warn" />
+          {attentionCount} {attentionCount === 1 ? "post needs" : "posts need"} attention
+        </Link>
+      )}
+      {next.length === 0 ? (
+        <EmptyState icon={CalendarClock} message="Nothing scheduled." />
+      ) : (
+        <ul className="flex flex-col divide-y divide-border">
+          {next.map((post) => {
+            const repeat = repeatLabel(post, timeZone);
+            return (
+              <li key={post.id} className="flex flex-col gap-0.5 py-3 first:pt-0 last:pb-0">
+                <p className="truncate text-sm">
+                  <span className="font-medium">{kindLabel(post.kind)}</span>
+                  <span className="text-muted-foreground"> · {post.groups?.name ?? "Group"}</span>
+                </p>
+                <p className="truncate text-sm text-muted-foreground">{post.body}</p>
+                <p className="text-xs text-muted-foreground">
+                  <DateTimeInCompanyTz value={post.due_at} timeZone={timeZone} />
+                  {repeat && ` · ${repeat}`}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }

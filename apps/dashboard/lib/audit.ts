@@ -49,6 +49,15 @@ export const ACTION_LABELS: Record<string, string> = {
   pairing_requested: "Link requested",
   relink_requested: "Relink requested",
   messages_purged: "Old messages deleted",
+  post_created: "Post scheduled",
+  post_updated: "Post changed",
+  post_cancelled: "Post cancelled",
+  post_resent: "Post resent",
+  post_dismissed: "Post dismissed",
+  post_sent: "Post sent",
+  post_failed: "Post failed",
+  post_uncertain: "Delivery uncertain",
+  post_skipped_late: "Post skipped (late)",
 };
 
 export function actionLabel(action: string): string {
@@ -141,6 +150,25 @@ export function auditSummary(row: Pick<AuditRow, "action" | "detail">): string {
       const what = `${count.toLocaleString("en")} ${count === 1 ? "message" : "messages"}`;
       return days ? `${what} older than ${days} days` : what;
     }
+    case "post_created":
+    case "post_updated":
+    case "post_resent":
+    case "post_dismissed":
+    case "post_skipped_late":
+      return text(field(d, "kind")) ?? "";
+    case "post_cancelled":
+      return [text(field(d, "kind")), field(d, "endedSeries") === true ? "series ended" : null]
+        .filter(Boolean)
+        .join(" · ");
+    case "post_sent":
+      return [text(field(d, "kind")), field(d, "late") === true ? "sent late" : null]
+        .filter(Boolean)
+        .join(" · ");
+    case "post_failed":
+    case "post_uncertain":
+      return [text(field(d, "kind")), text(field(d, "error")) ?? text(field(d, "reason"))]
+        .filter(Boolean)
+        .join(" · ");
     case "ai_key_saved":
       return text(field(d, "hint")) ? `ends in …${text(field(d, "hint"))}` : "";
     case "ai_models_updated":
