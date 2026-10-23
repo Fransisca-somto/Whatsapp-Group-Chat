@@ -799,6 +799,10 @@ export type Database = {
         }
       }
       clear_openrouter_key: { Args: never; Returns: undefined }
+      confirm_reminder_request: {
+        Args: { p_request_id: string; p_requester_jid: string }
+        Returns: string
+      }
       configure_alert_email: {
         Args: { p_api_key: string; p_from: string; p_recipients: string[] }
         Returns: undefined

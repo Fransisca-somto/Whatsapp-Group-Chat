@@ -117,7 +117,11 @@ function memoryStore(initial: Partial<Row>[]) {
 
 function setup(
   initial: Partial<Row>[],
-  options: { sendError?: (n: number) => Error | null; connected?: () => boolean } = {},
+  options: {
+    sendError?: (n: number) => Error | null;
+    connected?: () => boolean;
+    expireReminderRequests?: () => Promise<void>;
+  } = {},
 ) {
   const memory = memoryStore(initial);
   const sent: (OutgoingMessage & { at: number })[] = [];
@@ -135,6 +139,7 @@ function setup(
       },
     },
     isConnected: options.connected ?? (() => true),
+    expireReminderRequests: options.expireReminderRequests,
     settings: {
       load: () =>
         Promise.resolve({
@@ -199,6 +204,20 @@ describe("scheduler", () => {
     await t.scheduler.tick();
     expect(t.sent).toEqual([]);
     expect(t.statusOf("p1")).toBe("scheduled");
+  });
+
+  it("expires unconfirmed reminder requests every tick, even while disconnected", async () => {
+    let expired = 0;
+    const t = setup([{}], {
+      connected: () => false,
+      expireReminderRequests: () => {
+        expired++;
+        return Promise.resolve();
+      },
+    });
+    await t.scheduler.tick();
+    expect(expired).toBe(1);
+    expect(t.sent).toEqual([]);
   });
 
   it("spaces posts at least 3 seconds apart", async () => {

@@ -51,6 +51,8 @@ export function createScheduler(options: {
   isConnected: () => boolean;
   settings: AiSettingsStore;
   audit: AuditStore;
+  /** Step 2: marks reminder requests nobody confirmed in time as expired (Phase 6). */
+  expireReminderRequests?: () => Promise<void>;
   /** Stores the sent post in group_messages as a bot message (the chat view shows it). */
   recordBotMessage: (groupId: string, waMessageId: string, text: string) => Promise<void>;
   logger: Logger;
@@ -167,7 +169,12 @@ export function createScheduler(options: {
   }
 
   async function tick() {
-    if (stopped || !options.isConnected()) return;
+    if (stopped) return;
+    // Step 2 needs no WhatsApp connection: expiring only changes the database.
+    await options
+      .expireReminderRequests?.()
+      .catch((error: unknown) => log.error({ err: error }, "could not expire reminder requests"));
+    if (!options.isConnected()) return;
     let timeZone: string;
     try {
       timeZone = (await options.settings.load()).timezone;

@@ -11,6 +11,7 @@ import { cachedAiSettings, createAiSettingsRepo } from "./db/aiSettingsRepo.ts";
 
 import { createAlertsRepo } from "./db/alertsRepo.ts";
 import { createAuditRepo } from "./db/auditRepo.ts";
+import { createAuthorizedUsersRepo } from "./db/authorizedUsersRepo.ts";
 import { createAuthStateRepo } from "./db/authStateRepo.ts";
 import { createConnectionRepo } from "./db/connectionRepo.ts";
 import { createEmbeddingsRepo } from "./db/embeddingsRepo.ts";
@@ -19,6 +20,7 @@ import { createKnowledgeRepo } from "./db/knowledgeRepo.ts";
 import { createLockRepo } from "./db/lockRepo.ts";
 import { createMessagesRepo } from "./db/messagesRepo.ts";
 import { createPairingRepo } from "./db/pairingRepo.ts";
+import { createReminderRequestsRepo } from "./db/reminderRequestsRepo.ts";
 import { createScheduledPostsRepo } from "./db/scheduledPostsRepo.ts";
 import { createSearchRepo } from "./db/searchRepo.ts";
 import { createServiceClient } from "./db/supabase.ts";
@@ -33,6 +35,7 @@ import { createHeartbeat, type Heartbeat } from "./health/heartbeat.ts";
 import { botIdentity, createIngest } from "./ingest/ingest.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { createPairingWatcher, type PairingWatcher } from "./pairing/pairingWatcher.ts";
+import { createReminderFlow } from "./reminders/reminderFlow.ts";
 import { createScheduler, type Scheduler } from "./scheduler/scheduler.ts";
 import { createSupabaseAuthState } from "./whatsapp/authState.ts";
 import {
@@ -99,6 +102,12 @@ function main() {
   // Settings page changes apply within 60 s (api-interfaces.md §2.3).
   const aiSettings = cachedAiSettings(createAiSettingsRepo(db));
   const embeddings = createEmbeddingsClient();
+  const reminders = createReminderFlow({
+    requests: createReminderRequestsRepo(db),
+    authorizedUsers: createAuthorizedUsersRepo(db),
+    audit: auditRepo,
+    logger,
+  });
 
   // The socket of the current leader session; null whenever this instance holds none.
   let currentSocket: SocketLike | null = null;
@@ -109,6 +118,7 @@ function main() {
     knowledge: createKnowledgeRepo(db),
     search: createSearchRepo(db),
     embeddings,
+    reminders,
     usage: usageRepo,
     settings: aiSettings,
     audit: auditRepo,
@@ -129,6 +139,7 @@ function main() {
     audit: auditRepo,
     logger,
     onTagged: (message, group, raw) => assistant.handle(message, group, raw),
+    onReplyWord: (message, group, raw) => assistant.handleReplyWord(message, group, raw),
   });
   const alerter = createAlerter({
     store: createAlertsRepo(db),
@@ -215,6 +226,7 @@ function main() {
         isConnected: () => lock.isHeld() && !signal.aborted && connection!.isOpen(),
         settings: aiSettings,
         audit: auditRepo,
+        expireReminderRequests: () => reminders.expireOverdue(),
         recordBotMessage: async (groupId, waMessageId, text) => {
           const bot = currentSocket ? botIdentity(currentSocket) : { jid: null, lid: null };
           await messagesRepo.insertIfNew({

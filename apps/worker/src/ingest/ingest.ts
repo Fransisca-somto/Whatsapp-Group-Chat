@@ -41,6 +41,7 @@ export function createIngest(deps: {
   audit: AuditStore;
   logger: Logger;
   onTagged: TaggedHandler;
+  onReplyWord?: TaggedHandler;
 }): Ingest {
   const log = deps.logger.child({ module: "ingest" });
   const directory = createGroupDirectory({
@@ -72,6 +73,7 @@ export function createIngest(deps: {
             return null;
           }),
         onTagged: deps.onTagged,
+        onReplyWord: deps.onReplyWord,
         logger: deps.logger,
       });
 

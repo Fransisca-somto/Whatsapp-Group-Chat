@@ -39,6 +39,7 @@ export function memoryGroups(initial: Omit<GroupRecord, "id">[] = []) {
         allowGeneralKnowledge: true,
         dailyReplyCap: 200,
         botInstructions: null,
+        reminderPermission: "admins_only",
       }),
   };
   return { rows, store, touchActivity, findByJid };
