@@ -28,6 +28,8 @@ export type ChatResult = {
   /** The model that answered (the fallback if the first one failed). */
   model: string;
   usedFallback: boolean;
+  /** The model stopped at the token limit, so the text may end mid-sentence. */
+  truncated: boolean;
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
@@ -133,6 +135,7 @@ export function createOpenRouterClient(options: {
     const result = {
       text,
       model: parsed.data.model ?? model,
+      truncated: parsed.data.choices[0]?.finish_reason === "length",
       inputTokens: usage?.prompt_tokens ?? 0,
       outputTokens: usage?.completion_tokens ?? 0,
       costUsd: usage?.cost ?? 0,

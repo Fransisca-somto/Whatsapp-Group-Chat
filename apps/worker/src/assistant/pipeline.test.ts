@@ -49,6 +49,7 @@ const result = (text: string, cost = 0.0001): ChatResult => ({
   text,
   model: SETTINGS.chatModel!,
   usedFallback: false,
+  truncated: false,
   inputTokens: 1000,
   outputTokens: 20,
   costUsd: cost,

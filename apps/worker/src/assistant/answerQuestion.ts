@@ -13,6 +13,19 @@ export type Answer =
   | { kind: "answer"; text: string; long: boolean; call: ChatResult }
   | { kind: "dont_know"; call: ChatResult };
 
+/**
+ * A reply cut off at the token limit ends at its last complete sentence or line, so the group
+ * never sees "If it still doesn't". Text with no complete sentence is kept as it is.
+ */
+export function endAtLastSentence(text: string): string {
+  // A sentence end (. ! ? plus any closing quote or bracket) or a line break. The dot of a
+  // numbered list marker ("2. ") is not a sentence end.
+  const ends = [...text.matchAll(/(?<!^[ \t]*\d{1,3})[.!?]["')\]]*(?=\s|$)|\n/gm)];
+  const last = ends.at(-1);
+  if (!last || last.index === undefined) return text;
+  return text.slice(0, last.index + last[0].length).trimEnd();
+}
+
 export async function answerQuestion(
   client: OpenRouterClient,
   ai: AiAccess,
@@ -24,11 +37,12 @@ export async function answerQuestion(
     fallbackModel: ai.fallbackModel,
     messages: buildAnswerMessages(input),
     temperature: 0.3,
-    maxTokens: 300,
+    // Room for a step-by-step fix; the prompt keeps simple answers short.
+    maxTokens: 700,
   });
   // Any reply carrying the marker means "not in the reference data", even with extra words.
   if (call.text.includes(NO_ANSWER_MARKER)) return { kind: "dont_know", call };
-  const reply = formatReply(call.text);
+  const reply = formatReply(call.truncated ? endAtLastSentence(call.text) : call.text);
   if (!reply.text) return { kind: "dont_know", call };
   return { kind: "answer", text: reply.text, long: reply.long, call };
 }

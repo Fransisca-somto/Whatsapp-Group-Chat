@@ -366,6 +366,7 @@ export function createAssistant(deps: AssistantDeps): Assistant {
         text: "",
         model: "",
         usedFallback: false,
+        truncated: false,
         inputTokens: error.spent.inputTokens,
         outputTokens: error.spent.outputTokens,
         costUsd: error.spent.costUsd,

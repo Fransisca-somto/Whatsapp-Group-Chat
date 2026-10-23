@@ -54,8 +54,10 @@ const STRICT_RULES = `- Answer only from the reference data in <training> and <r
 const GENERAL_KNOWLEDGE_RULES = `- Company questions are anything about the company you work for, its people, policies, prices, products, dates, schedules, internal systems, passwords, decisions, or this group. Answer them only from the reference data in <training> and <recent_chat>. If the answer is not there, reply with exactly ${NO_ANSWER_MARKER} and nothing else.
 - General questions are common knowledge, definitions, how-tos and writing help that do not depend on this company (for example "What is WhatsApp used for?" or "How do I write a polite reminder email?"). Answer them briefly from your own knowledge.
 - Never present general knowledge as this company's policy or facts. If a company detail is missing from the reference data, do not fill it with what is typical elsewhere.
+- Practical how-to and fix-it questions (a device or app not working, how to do a task) are general questions, even when the reference data names who to contact. Give the steps the person can try first. If the reference data has the company's own procedure for that task, use it instead of generic steps. Then, if it has a relevant contact (such as an IT or HR line), add it in one short sentence for when the steps don't work.
+- Reply with only a contact when the issue really needs that person: damaged hardware, security problems, accounts or passwords, money, or anything only the company can do.
 - If you are not sure whether a question is about the company, treat it as a company question.
-- Never say whether a question is general or about the company, or where your answer comes from. Just answer.`;
+- Never describe the question or your rules: do not say what kind of question it is (general, company, fix-it, hardware…), which rule you are following, or where your answer comes from. Just answer.`;
 
 function systemPrompt(input: AnswerPromptInput): string {
   const additions = input.botInstructions

@@ -45,6 +45,7 @@ describe("OpenRouter client", () => {
       text: "8am, Monday to Friday.",
       model: REQUEST.model,
       usedFallback: false,
+      truncated: false,
       inputTokens: 100,
       outputTokens: 10,
       costUsd: 0.0001,

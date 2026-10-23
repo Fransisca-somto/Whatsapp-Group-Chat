@@ -51,7 +51,9 @@ describe("answer prompt", () => {
     expect(system).toContain(`reply with exactly ${NO_ANSWER_MARKER}`);
     expect(system).toContain("Never present general knowledge as this company's policy");
     expect(system).toContain("treat it as a company question");
-    expect(system).toContain("Never say whether a question is general or about the company");
+    expect(system).toContain("Give the steps the person can try first");
+    expect(system).toContain("Reply with only a contact when the issue really needs that person");
+    expect(system).toContain("do not say what kind of question it is");
     expect(system).not.toContain("Do not use outside knowledge");
   });
 

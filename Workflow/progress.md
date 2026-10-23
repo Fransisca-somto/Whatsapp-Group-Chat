@@ -219,6 +219,13 @@ Newest first. One entry per working session.
 - Notes / issues: <anything the next session must know>
 ```
 
+### 2026-10-23 — Claude (practical questions rule; complete answers)
+- Owner request after "How can I fix my laptop (HP screen is not working)" got only the IT support number: plan approved. Also wrote `it-support-playbook.md` (12 general IT entries, ~5,900 characters) for the owner to upload; it was uploaded (18 active entries in the group).
+- Done: answer rule for practical how-to / fix-it questions (steps first, company procedure from the training where there is one, then the contact; contact only for damage, security, accounts, money, company-only matters). Found during the live check and fixed: (1) step-by-step answers were cut off mid-sentence at the 300-token limit: the limit is now 700 and a cut-off reply ends at its last complete sentence (`ChatResult.truncated`, `endAtLastSentence`); (2) a reply opened with "This is a fix-it question, so…": the no-commentary rule now covers any description of the question or the rules.
+- Verified: typecheck, lint, format, tests (shared 59, worker 185, dashboard 97). Real OpenRouter calls with the group's training: mouse and HP-screen questions get steps then the IT line; password reset uses the staff portal procedure; wifi password → "I don't know"; cracked screen → straight to IT; office hours stays one line. About $0.0005 per answer.
+- Owner to check in WhatsApp after restarting the worker.
+- Changed docs: `api-interfaces.md`, `progress.md`.
+
 ### 2026-10-23 — Claude (Next.js 16.4.2 security update)
 - Owner approved after `next dev` replaced the dev server with its own upgrade helper ("Upgrade: Next.js 16.4.0 → 16.4.2 … No supported coding agent found") and exited. `next` and `eslint-config-next` 16.4.0 → 16.4.2; `pnpm install` (lockfile updated). No code changes.
 - Verified: typecheck, lint, format, tests (shared 59, worker 180, dashboard 97); the dashboard build passed on the first try with no `SecurityFatalError`. The remaining `pnpm peers check` warning (`@eslint/js@10` wants ESLint 10; ESLint 9.39.5 installed) already existed before the upgrade and is unrelated.
