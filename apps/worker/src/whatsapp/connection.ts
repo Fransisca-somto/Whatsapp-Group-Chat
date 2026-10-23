@@ -67,6 +67,8 @@ export type ConnectionManager = {
   /** Logs out and clears the stored session, ready for a new pair(). */
   relink(): Promise<void>;
   isRegistered(): boolean;
+  /** True while the current socket is connected to WhatsApp (not connecting, pairing or closed). */
+  isOpen(): boolean;
   /** Fires each time the socket reaches `open` (also after a pairing succeeds). */
   onOpen(listener: (sock: SocketLike) => void): () => void;
   /** Fires when an unfinished pairing socket closes on its own. */
@@ -103,6 +105,8 @@ export function createConnectionManager(options: ConnectionManagerOptions): Conn
   const log = options.logger.child({ module: "connection" });
 
   let socket: SocketLike | undefined;
+  /** The socket that last reached `open`; it only counts while it is still the current one. */
+  let openedSocket: SocketLike | undefined;
   /** Bumped whenever a socket is replaced or closed on purpose; stale events are ignored. */
   let generation = 0;
   let failures = 0;
@@ -191,6 +195,7 @@ export function createConnectionManager(options: ConnectionManagerOptions): Conn
     }
 
     if (update.connection === "open") {
+      openedSocket = sock;
       failures = 0;
       endPairing();
       const me = sock.user;
@@ -322,6 +327,8 @@ export function createConnectionManager(options: ConnectionManagerOptions): Conn
     },
 
     isRegistered: () => auth.isRegistered(),
+
+    isOpen: () => openedSocket !== undefined && openedSocket === socket,
 
     onOpen(listener) {
       openListeners.add(listener);

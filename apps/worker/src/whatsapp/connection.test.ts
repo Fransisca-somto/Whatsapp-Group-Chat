@@ -182,6 +182,26 @@ describe("connection manager", () => {
     expect(sockets).toHaveLength(1);
   });
 
+  it("is open only between the socket opening and closing", async () => {
+    const { manager, sockets } = setup(true);
+    await manager.start();
+    expect(manager.isOpen()).toBe(false); // connecting
+    sockets[0]?.update({ connection: "open" });
+    await flush();
+    expect(manager.isOpen()).toBe(true);
+    sockets[0]?.close(DisconnectReason.connectionLost);
+    await flush();
+    expect(manager.isOpen()).toBe(false);
+    await vi.advanceTimersByTimeAsync(2_000); // the replacement socket is still connecting
+    expect(sockets).toHaveLength(2);
+    expect(manager.isOpen()).toBe(false);
+    sockets[1]?.update({ connection: "open" });
+    await flush();
+    expect(manager.isOpen()).toBe(true);
+    await manager.stop();
+    expect(manager.isOpen()).toBe(false);
+  });
+
   it("backs off and reconnects after a lost connection", async () => {
     const { manager, sockets, lastStatus } = setup(true);
     await manager.start();
