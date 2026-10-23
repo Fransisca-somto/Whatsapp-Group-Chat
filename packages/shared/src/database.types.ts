@@ -592,6 +592,7 @@ export type Database = {
           created_by_phone_e164: string | null
           created_by_user_id: string | null
           created_via: string
+          dismissed_at: string | null
           due_at: string
           group_id: string
           id: string
@@ -613,6 +614,7 @@ export type Database = {
           created_by_phone_e164?: string | null
           created_by_user_id?: string | null
           created_via: string
+          dismissed_at?: string | null
           due_at: string
           group_id: string
           id?: string
@@ -634,6 +636,7 @@ export type Database = {
           created_by_phone_e164?: string | null
           created_by_user_id?: string | null
           created_via?: string
+          dismissed_at?: string | null
           due_at?: string
           group_id?: string
           id?: string

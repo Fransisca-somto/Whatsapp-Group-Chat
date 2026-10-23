@@ -9,10 +9,11 @@ const LABELS: Record<GroupTab, string> = {
   settings: "Settings",
   train: "Train",
   messages: "Messages",
+  scheduled: "Scheduled",
 };
 
 /**
- * Settings · Train · Messages on the group page. The open tab is kept in `?tab=` so approving a
+ * Settings · Train · Messages · Scheduled on the group page. The open tab is kept in `?tab=` so approving a
  * group can land on Train and a reload stays on the same tab.
  */
 export function GroupTabs({
