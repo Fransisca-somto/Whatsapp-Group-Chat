@@ -1,7 +1,7 @@
 # Step 08 — Phase 6: Tag-to-Create Reminders
 
 > Covers `progress.md` Phase 6, tasks **6.1–6.5**.
-> Status: **plan, awaiting owner approval.** No code is written until the owner approves (CLAUDE.md §1).
+> Status: **approved 2026-10-23 (P21–P26 as written); built on `phase-6`.**
 > Branch: `phase-6`, created from `main` once `phase-5` is merged. One commit per task.
 
 ## Goal

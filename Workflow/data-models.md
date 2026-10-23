@@ -143,7 +143,7 @@ Indexes: (`group_id`, `sent_at desc`); HNSW on `embedding`; GIN on `tsv`; partia
 | expires_at | timestamptz not null | created_at + 2 minutes |
 | scheduled_post_id | uuid | FK → scheduled_posts, set on confirm |
 
-Partial unique index: one `awaiting` row per (`group_id`, `requester_jid`). A new request marks the old one `superseded`.
+Partial unique index: one `awaiting` row per (`group_id`, `requester_jid`). A new request marks the old one `superseded`. `requester_jid` is stored without its device suffix, so a "yes" from any of the person's devices matches. Check: `draft_body` 1–500 characters (0013). Rows are only confirmed through `confirm_reminder_request()` (§5.8).
 
 ### 3.9 `scheduled_posts` (reminders and announcements)
 | Column | Type | Notes |
@@ -342,6 +342,9 @@ Returns false when no row was updated. (Implemented in plpgsql with `return foun
 ### 5.7 Retention (migration `0011_search_indexing_and_retention.sql`, ADR-032)
 - `purge_expired_messages() returns int`: for each group with `retention_days` set, deletes its `group_messages` with `sent_at` older than that many days (5,000 per batch) and writes one `messages_purged` audit row per group that lost messages. Returns the total deleted. `security definer`, `service_role` only.
 - `pg_cron` job `purge-expired-messages` runs it daily at 03:00 UTC (04:00 Lagos). It runs in the database, so it works even when the worker is down. The migration unschedules any job with that name first.
+
+### 5.8 Reminder confirmation (migration `0013_tag_reminders.sql`, ADR-035)
+- `confirm_reminder_request(p_request_id uuid, p_requester_jid text) returns uuid`: in one transaction, locks the request if it is `awaiting`, not expired and from this requester; inserts the `scheduled_posts` row (`kind = 'reminder'`, `created_via = 'group'`, `created_by_phone_e164` = the requester's phone, the draft text and time); sets the request `confirmed` with `scheduled_post_id`. Returns the post id, or null when nothing was confirmed (expired, already answered, or someone else). A second "yes" waits on the lock, then finds it confirmed: a double "yes" never creates two reminders. `security definer`, `service_role` only.
 
 **Implementation notes (migration `0006_functions.sql`)**
 - Both search functions order each branch by rank *before* `limit 30`, skip the semantic branch when the query embedding is null, and re-check `group_id` in the final select.

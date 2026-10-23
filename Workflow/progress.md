@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 6 — Tag-to-Create Reminders, not started (Phase 0–3, 5 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | Merge `phase-5` into `main`; then plan Phase 6 |
+| **Current phase** | Phase 6 — Tag-to-Create Reminders (Phase 0–3, 5 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
+| **Current task** | 6.1–6.5 built on branch `phase-6` (plan: `Workflow/Phases/08-Tag-Reminders.md`). Next: owner applies migration 0013, regenerates types, restarts the worker and runs the live test |
 | **Blockers** | None |
-| **Last updated** | 2026-10-23 (Phase 5 complete) |
+| **Last updated** | 2026-10-23 (Phase 6 built, migration 0013) |
 
 ---
 
@@ -75,12 +75,13 @@ Plan: `Workflow/Phases/07-Scheduler.md` (owner-approved 2026-10-23, P14–P20; s
 - ✅ 5.5 "Needs attention" tab with Resend for uncertain items. Live test passed 2026-10-23.
 - **Exit criteria:** posts arrive within 30 s of due time; crash-and-restart never produces a duplicate.
 
-### Phase 6 — Tag-to-Create Reminders ⬜
-- ⬜ 6.1 Authorized users page (name, phone, scope).
-- ⬜ 6.2 Per-group permission toggle enforcement (admins only / any member).
-- ⬜ 6.3 Reminder parsing in company timezone; code validation.
-- ⬜ 6.4 Confirmation state machine (requester only, yes/no, 2-minute expiry, one pending per user per group).
-- ⬜ 6.5 Polite refusals for unauthorized users and dashboard-only requests (edit, cancel, recurring).
+### Phase 6 — Tag-to-Create Reminders 🟦
+Plan: `Workflow/Phases/08-Tag-Reminders.md` (owner-approved 2026-10-23, P21–P26).
+- 🟦 6.1 Authorized users page (name, phone, scope). Built; awaiting the live test.
+- 🟦 6.2 Per-group permission toggle enforcement (admins only / any member). Built; awaiting the live test.
+- 🟦 6.3 Reminder parsing in company timezone; code validation. Built; awaiting the live test.
+- 🟦 6.4 Confirmation state machine (requester only, yes/no, 2-minute expiry, one pending per user per group). Built; awaiting migration 0013 and the live test.
+- 🟦 6.5 Polite refusals for unauthorized users and dashboard-only requests (edit, cancel, recurring). Built; awaiting the live test.
 - **Exit criteria:** authorized user creates a reminder end-to-end; others are refused; nothing saved without "yes"; expired requests leave no reminder.
 
 ### Phase 7 — Hardening ⬜
@@ -200,6 +201,9 @@ Decision: Repeats are limited to Daily, Weekdays, Weekly on chosen days, and Mon
 **ADR-034 — Scheduler failures follow what WhatsApp saw · 2026-10-23 · Accepted (owner decision P17; amends the scheduled_posts state machine, keeps ADR-011)**
 Decision: The scheduler claims only while WhatsApp is open. A post that never reached WhatsApp (not connected, worker stopping) goes back to `scheduled`; one WhatsApp rejected is `failed`; one without confirmation within 15 s, or left `sending` by a stopped session, is `delivery_uncertain`. Nothing is resent automatically; Needs attention offers Resend (as a one-off due now) and Dismiss (`dismissed_at`, migration 0012). Posts of paused or removed groups wait and are skipped if more than 2 h late when the group is active again. Consequences: a short disconnect never fails a post and never risks a duplicate; uncertain posts need a person to check the group.
 
+**ADR-035 — Confirming tag-created reminders · 2026-10-23 · Accepted (owner decisions P21–P24, P26)**
+Decision: A "yes"/"no" counts only when it is the whole message (fixed word lists; @mentions, spaces and surrounding punctuation ignored), from the requester, in the same group, within 2 minutes; it works untagged, as a reply, or as a tag, and is checked before the AI. Confirming is one database step (`confirm_reminder_request()`, migration 0013) that creates the reminder and marks the request, so a double "yes" or a late one never creates a second or stale reminder. A yes/no up to 10 minutes after expiry gets "That request has expired, so nothing was set" (replaces the silent-expiry default for that case; expiry itself still sends nothing). Reminders must be 3 minutes to 1 year ahead. Reminders set in a group show who set them on the dashboard. Consequences: no AI cost for confirmations; "yes please" is not a confirmation; in admins-only groups, people whose number WhatsApp hides cannot set reminders (they are told why).
+
 ---
 
 ## Open Defaults to Confirm
@@ -231,6 +235,16 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-23 — Claude (Phase 6 built: reminders by tag)
+- Task(s): 6.1–6.5 on branch `phase-6` (from `main` after PR #5). Plan approved with P21–P26 as written.
+- Done: `/authorized-users` (list, add / edit / turn off / remove, `<PhoneInput>`, server actions with group links and duplicate-number message, audited); shared `reminders.ts` (`replyWord`, `checkReminderDraft`, `reminderTimeInTz`, limits); worker `reminders/permission.ts`, `reminders/reminderFlow.ts`, `db/authorizedUsersRepo.ts`, `db/reminderRequestsRepo.ts`; pipeline `create_reminder` → flow, tagged yes/no checked before the AI gates, `assistant.handleReplyWord` for untagged yes/no (routed by ingest through the group queue); scheduler tick step 2 expiry; new templates (`remindersNotYet` removed); `groups.reminder_permission` read with the assistant settings; dashboard "Set in the group by …" (P26) and Audit log labels.
+- Migration `0013_tag_reminders.sql`: `confirm_reminder_request()` and the 500-character check. `database.types.ts` edited by hand (one function).
+- Plan deviations, small: 6.4 and 6.5 are one commit (the refusal replies live in the flow); `<PhoneInput>` is tested through the dialog tests; a confirmation that races with expiry also gets the "expired" reply (`reminder_late_reply`), so the bot never says "Done" without a saved reminder.
+- Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, tests (shared 87, worker 244, dashboard 126), dashboard build: all pass.
+- Risk to check live: how often WhatsApp hides staff numbers (Supabase was unreachable from here, so not measured). In an admins-only group those people get the `noPhone` reply.
+- **Needs the owner:** apply 0013 (`pnpm supabase db push`), regenerate types, restart the worker, then the live test in the plan's Verify section.
+- Changed docs: `progress.md`, `data-models.md`, `api-interfaces.md`, `architecture.md`, `ui-context.md`, `Phases/08-Tag-Reminders.md`.
 
 ### 2026-10-23 — Claude (Phase 5 built: scheduler)
 - Task(s): 5.1–5.5 on branch `phase-5` (from `main` after PR #4). Plan approved with P14–P20 as written, and starting before Phase 4's retention check.

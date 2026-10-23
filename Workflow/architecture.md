@@ -51,7 +51,7 @@
 │           ├── whatsapp/       # Baileys socket, auth-state adapter, send queue
 │           ├── ingest/         # Message intake, storage, dedupe, tag detection
 │           ├── assistant/      # Intent, answer generation, retrieval
-│           ├── reminders/      # Tag-to-create flow, confirmation state machine
+│           ├── reminders/      # Tag-to-create flow: permission check (code), confirmation state machine
 │           ├── scheduler/      # 30s poller (leader-only, only while WhatsApp is open): late skips, claiming, sending, next dates of repeating posts
 │           ├── pairing/        # Pair / relink request handling
 │           ├── health/         # Heartbeat, alerts
@@ -102,7 +102,7 @@ Every tagged message passes through these steps in order. No step may be skipped
 
 The LLM's output can never grant permissions, choose a group, or write data.
 
-**Implemented in Phase 3** (`assistant/pipeline.ts`, per group through `assistant/groupQueue.ts`): steps 1–3 live in ingest; the pipeline then checks the group is `active` with AI on (paused or AI off: silent), skips tags older than 5 minutes (P4), applies the rate gate, then two set-up gates (OpenRouter key and chat model saved; the group has active training) before step 6. Step 5 (pending confirmation) arrives in Phase 6; until then `create_reminder` gets a fixed "not available yet" reply. Every outcome sets `handled_status` and writes one `bot_actions` row (`api-interfaces.md` §4.1).
+**Implemented in Phase 3** (`assistant/pipeline.ts`, per group through `assistant/groupQueue.ts`): steps 1–3 live in ingest; the pipeline then checks the group is `active` with AI on (paused or AI off: silent), skips tags older than 5 minutes (P4), applies the rate gate, then two set-up gates (OpenRouter key and chat model saved; the group has active training) before step 6. Step 5 (pending confirmation) is implemented in Phase 6 (`reminders/reminderFlow.ts`): a tagged "yes"/"no" is checked against the sender's awaiting reminder before the AI set-up gates, and an untagged one reaches only that check (`assistant.handleReplyWord`); `create_reminder` goes to the same flow (permission and time checked by code, confirmed by `confirm_reminder_request()`). Every outcome sets `handled_status` and writes one `bot_actions` row (`api-interfaces.md` §4.1).
 
 ## 5. Single-Connection Guarantee (Leader Lock)
 
