@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 5 — Scheduler (Phase 0–3 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | 5.1–5.5 built on branch `phase-5` (plan: `Workflow/Phases/07-Scheduler.md`). Next: owner applies migration 0012, regenerates types, restarts the worker and runs the live test |
+| **Current phase** | Phase 6 — Tag-to-Create Reminders, not started (Phase 0–3, 5 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
+| **Current task** | Merge `phase-5` into `main`; then plan Phase 6 |
 | **Blockers** | None |
-| **Last updated** | 2026-10-23 (Phase 5 built, migration 0012) |
+| **Last updated** | 2026-10-23 (Phase 5 complete) |
 
 ---
 
@@ -66,13 +66,13 @@ Plan: `Workflow/Phases/06-Deep-History.md` (owner-approved 2026-10-23, P8–P13)
 - 🟦 4.4 Retention job honoring `groups.retention_days`. Built (database `pg_cron` job, migration 0011 applied). Live check deferred by the owner to about 2026-11-23: nothing is old enough to delete yet (Softwirelex group keeps 162 days).
 - **Exit criteria:** "what did we decide about the reports on Monday?" finds the right messages by meaning and by keyword; no cross-group leakage (tested).
 
-### Phase 5 — Scheduler & Dashboard Scheduling 🟦
+### Phase 5 — Scheduler & Dashboard Scheduling ✅
 Plan: `Workflow/Phases/07-Scheduler.md` (owner-approved 2026-10-23, P14–P20; started before Phase 4's retention check with the owner's approval).
-- 🟦 5.1 `/schedule` page: create / edit / cancel announcements and reminders, including recurring. Built; awaiting migration 0012 and the live test.
-- 🟦 5.2 30-second poller with atomic claiming. Built; awaiting the live test.
-- 🟦 5.3 Late handling (≤2 h send with note; >2 h skip) and delivery-uncertain recovery. Built; awaiting the live test.
-- 🟦 5.4 Recurrence: next occurrence created after each send. Built; awaiting the live test.
-- 🟦 5.5 "Needs attention" tab with Resend for uncertain items. Built (with Dismiss); awaiting the live test.
+- ✅ 5.1 `/schedule` page: create / edit / cancel announcements and reminders, including recurring. Live test passed 2026-10-23.
+- ✅ 5.2 30-second poller with atomic claiming. Live test passed 2026-10-23.
+- ✅ 5.3 Late handling (≤2 h send with note; >2 h skip) and delivery-uncertain recovery. Live test passed 2026-10-23.
+- ✅ 5.4 Recurrence: next occurrence created after each send. Live test passed 2026-10-23.
+- ✅ 5.5 "Needs attention" tab with Resend for uncertain items. Live test passed 2026-10-23.
 - **Exit criteria:** posts arrive within 30 s of due time; crash-and-restart never produces a duplicate.
 
 ### Phase 6 — Tag-to-Create Reminders ⬜
@@ -242,6 +242,7 @@ Newest first. One entry per working session.
 - Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, tests (shared 82, worker 226, dashboard 113), dashboard build: all pass.
 - **Needs the owner:** apply 0012 (`pnpm supabase db push`), regenerate types and confirm no real `git diff`, restart the worker, then the live test in the plan's Verify section.
 - Changed docs: `progress.md`, `data-models.md`, `api-interfaces.md`, `architecture.md`, `ui-context.md`, `Phases/07-Scheduler.md`.
+- **Update (same day):** the owner applied migration 0012, restarted the worker and ran the live test: "this works properly". Tasks 5.1–5.5 and Phase 5 marked ✅. `database.types.ts` shows no difference from the hand edit. Not recorded step by step: which of the plan's live checks were run individually (in particular the stop-the-worker late-post check).
 
 ### 2026-10-23 — Claude (Phase 4 built: search and retention)
 - Task(s): 4.1–4.4 on branch `phase-4` (from `main` after PR #3 merged). Plan approved with P8–P13 as written.
