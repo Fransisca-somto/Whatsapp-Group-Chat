@@ -10,7 +10,7 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 4 — Deep History (Phase 0–3 ✅) |
-| **Current task** | 4.1–4.4 built on branch `phase-4`; migration 0011 applied, isolation check passed, backlog indexed. Next: regenerate types, live test |
+| **Current task** | 4.1–4.4 built on branch `phase-4`; migration 0011 applied, isolation check passed, backlog indexed, live test passed. Next: regenerate types, confirm the retention job, then merge `phase-4` |
 | **Blockers** | None |
 | **Last updated** | 2026-10-23 (Phase 4 built, migration 0011) |
 
@@ -62,7 +62,7 @@ Plan: `Workflow/Phases/05-Tagged-QA.md` (owner-approved 2026-10-22).
 Plan: `Workflow/Phases/06-Deep-History.md` (owner-approved 2026-10-23, P8–P13).
 - ✅ 4.1 Embedding pipeline for messages and knowledge (background, batched, retry on failure). Live run 2026-10-23: backlog cleared (training 38 done; messages 17 done, 16 skipped; none pending or failed).
 - ✅ 4.2 `search_group_history` and `search_knowledge` SQL functions (vector + full-text, reciprocal rank fusion). Migration 0011 applied; isolation check `supabase/tests/phase4_isolation.sql` passed in the SQL Editor (2026-10-23).
-- 🟦 4.3 Retrieval wired into answers; search strictly scoped to the asking group. Built; awaiting the live test.
+- ✅ 4.3 Retrieval wired into answers; search strictly scoped to the asking group. Live test passed 2026-10-23 (owner: "works well").
 - 🟦 4.4 Retention job honoring `groups.retention_days`. Built (database `pg_cron` job); awaiting migration 0011.
 - **Exit criteria:** "what did we decide about the reports on Monday?" finds the right messages by meaning and by keyword; no cross-group leakage (tested).
 
@@ -235,7 +235,7 @@ Newest first. One entry per working session.
 - **Needs the owner:** `pnpm supabase db push` (0011); regenerate types (`pnpm supabase gen types typescript --linked > packages/shared/src/database.types.ts`) and confirm `git diff` shows no real change; restart the worker (the backlog of existing messages and training is indexed in the first minutes); run `supabase/tests/phase4_isolation.sql` in the SQL Editor (expect one "PASS" row); then the live test in the plan's Verify section. The local `.env` files still list `EMBEDDINGS_*`; they are ignored and can be deleted.
 - Notes: embedding costs are below `ai_usage_daily.est_cost_usd`'s 4-decimal precision, so they show as tokens rather than dollars. The keyword branch uses the `simple` text config (no stemming): "reports" does not match "report" by keyword, but the meaning search covers it.
 - Changed docs: `progress.md`, `data-models.md`, `api-interfaces.md`, `architecture.md`, `ui-context.md`, `Phases/06-Deep-History.md`.
-- **Update (same day):** the owner confirmed migration 0011 is applied (`group_messages.embedding_attempts` exists) and ran `supabase/tests/phase4_isolation.sql` in the SQL Editor: **PASS** (searches as group A returned no group B rows and no bot replies, by meaning and keyword and by keyword only). Task 4.2 ✅. After the worker restart, the owner's status query showed the backlog indexed: training 38 `done`; messages 17 `done`, 16 `skipped`; nothing `pending` or `failed`. Task 4.1 ✅. Still open: regenerate types, live test (4.3), retention (4.4) runs nightly.
+- **Update (same day):** the owner confirmed migration 0011 is applied (`group_messages.embedding_attempts` exists) and ran `supabase/tests/phase4_isolation.sql` in the SQL Editor: **PASS** (searches as group A returned no group B rows and no bot replies, by meaning and keyword and by keyword only). Task 4.2 ✅. After the worker restart, the owner's status query showed the backlog indexed: training 38 `done`; messages 17 `done`, 16 `skipped`; nothing `pending` or `failed`. Task 4.1 ✅. Owner ran the live test in "Softwirelex group" (decision posted, 15+ messages after it, asked twice in different words) and reported it works well. Task 4.3 ✅. Still open: regenerate types; confirm retention (4.4) after its first nightly run.
 
 ### 2026-10-23 — Claude (Phase 3 complete)
 - Owner reported the Phase 3 live test in WhatsApp passed: "tested and works as expected". Tasks 3.2–3.6 and Phase 3 marked ✅.
