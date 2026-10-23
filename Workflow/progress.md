@@ -219,6 +219,11 @@ Newest first. One entry per working session.
 - Notes / issues: <anything the next session must know>
 ```
 
+### 2026-10-23 — Claude (Next.js 16.4.2 security update)
+- Owner approved after `next dev` replaced the dev server with its own upgrade helper ("Upgrade: Next.js 16.4.0 → 16.4.2 … No supported coding agent found") and exited. `next` and `eslint-config-next` 16.4.0 → 16.4.2; `pnpm install` (lockfile updated). No code changes.
+- Verified: typecheck, lint, format, tests (shared 59, worker 180, dashboard 97); the dashboard build passed on the first try with no `SecurityFatalError`. The remaining `pnpm peers check` warning (`@eslint/js@10` wants ESLint 10; ESLint 9.39.5 installed) already existed before the upgrade and is unrelated.
+- Owner to check: start the dashboard and open Overview, Groups, a group's Messages and Train tabs, Settings and Audit log.
+
 ### 2026-10-23 — Claude (general questions switch; guard trigger fix)
 - Owner question: why nearly every answer was "I don't have that information". The bot's records showed training questions were answered and everything else hit the strict D2 rule, including general questions. Owner approved a plan.
 - Done: migration `0010_general_knowledge_and_guard_fix.sql` (`groups.allow_general_knowledge` default on; `group_messages_guard` leaves out the generated `tsv` column; repair of tagged messages stuck at `received` from the audit log); shared `groupSettingsSchema.allowGeneralKnowledge`; worker answer prompt with strict vs general rules (plus "never say which kind a question is", added after a live test reply opened with "This is a general writing question…"); intent prompt no longer calls ordinary general questions off topic; dashboard switch "Answer general questions too" on the group Settings tab (saved with the other settings).
