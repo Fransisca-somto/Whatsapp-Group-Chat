@@ -43,6 +43,13 @@ describe("audit labels", () => {
     ).toBe("1,250 messages older than 90 days");
     expect(actionLabel("messages_purged")).toBe("Old messages deleted");
     expect(actionLabel("post_uncertain")).toBe("Delivery uncertain");
+    expect(auditSummary({ action: "refused_unauthorized", detail: { reason: "no_phone" } })).toBe(
+      "number not visible",
+    );
+    expect(auditSummary({ action: "reminder_unclear", detail: { reason: "too_soon" } })).toBe(
+      "time too soon",
+    );
+    expect(auditSummary({ action: "authorized_user_added", detail: { name: "Ada" } })).toBe("Ada");
     expect(auditSummary({ action: "post_sent", detail: { kind: "reminder", late: true } })).toBe(
       "reminder · sent late",
     );
