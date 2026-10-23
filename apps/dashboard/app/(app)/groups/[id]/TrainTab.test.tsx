@@ -22,6 +22,7 @@ const ENTRY = {
   content: "Refunds are handled by finance.\n\n## Who qualifies\nCustomers within 30 days.",
   is_active: true,
   updated_at: "2026-10-22T09:00:00.000Z",
+  embedding_status: "done",
 };
 
 function renderTab(overrides: Partial<Parameters<typeof TrainTab>[0]> = {}) {
@@ -56,6 +57,21 @@ describe("TrainTab", () => {
     expect(screen.getByRole("heading", { name: "Refund policy" })).toBeInTheDocument();
     expect(screen.getByText(/Refunds are handled by finance\. Who qualifies/)).toBeInTheDocument();
     expect(screen.getByText(/1 subheading/)).toBeInTheDocument();
+    expect(screen.queryByText("Indexing…")).not.toBeInTheDocument();
+  });
+
+  it("marks entries still being indexed, or that could not be indexed", () => {
+    renderTab({
+      entries: [
+        { ...ENTRY, embedding_status: "pending" },
+        { ...ENTRY, id: "8b3f4e5d-6c70-4b82-8c9d-1e2f3a4b5c6d", embedding_status: "failed" },
+      ],
+    });
+    expect(screen.getByText("Indexing…")).toBeInTheDocument();
+    expect(screen.getByText("Not searchable")).toHaveAttribute(
+      "title",
+      expect.stringContaining("Edit and save it to try again"),
+    );
   });
 
   it("turns an entry off without deleting it", () => {

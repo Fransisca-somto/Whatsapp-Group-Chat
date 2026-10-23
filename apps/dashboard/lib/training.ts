@@ -1,6 +1,6 @@
 // Shapes shared by the Train tab, the Training overview and their server actions.
 
-export const TRAINING_COLUMNS = "id, title, content, is_active, updated_at";
+export const TRAINING_COLUMNS = "id, title, content, is_active, updated_at, embedding_status";
 
 export type TrainingEntryView = {
   id: string;
@@ -8,6 +8,8 @@ export type TrainingEntryView = {
   content: string;
   is_active: boolean;
   updated_at: string;
+  /** Search indexing (Phase 4): pending → done, or failed after 3 attempts. */
+  embedding_status: string;
 };
 
 /** A group the current group can copy training from. */
@@ -28,4 +30,11 @@ export function trainingPreview(content: string, length = 160): string {
 /** Number of `## Subheading` sections in an entry. */
 export function subheadingCount(content: string): number {
   return content.match(/^##\s+\S/gm)?.length ?? 0;
+}
+
+/** P13: the Train tab marker for an entry's search indexing, or null once it is searchable. */
+export function indexingMarker(status: string): { label: string; failed: boolean } | null {
+  if (status === "pending") return { label: "Indexing…", failed: false };
+  if (status === "failed") return { label: "Not searchable", failed: true };
+  return null;
 }
