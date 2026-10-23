@@ -100,6 +100,8 @@ describe("ScheduledPostDialog", () => {
           sent_late: false,
           last_error: null,
           dismissed_at: null,
+          created_via: "dashboard",
+          created_by_phone_e164: null,
           groups: { name: "Sales" },
         }}
         open

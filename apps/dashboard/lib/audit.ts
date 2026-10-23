@@ -63,6 +63,7 @@ export const ACTION_LABELS: Record<string, string> = {
   reminder_declined: "Reminder cancelled",
   reminder_expired: "Reminder request expired",
   reminder_unclear: "Reminder not understood",
+  reminder_late_reply: "Reply after request expired",
   refused_unauthorized: "Reminder refused",
   authorized_user_added: "Authorized user added",
   authorized_user_updated: "Authorized user changed",

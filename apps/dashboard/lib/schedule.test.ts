@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { attentionReason, formValuesFromPost, kindLabel, repeatLabel } from "./schedule";
+import {
+  attentionReason,
+  createdInGroupLabel,
+  formValuesFromPost,
+  kindLabel,
+  repeatLabel,
+} from "./schedule";
 
 const LAGOS = "Africa/Lagos";
 
@@ -17,6 +23,18 @@ describe("schedule labels", () => {
     ).toBe("Every weekday at 9:00 AM");
     expect(repeatLabel({ recurrence_rule: null, due_at }, LAGOS)).toBeNull();
     expect(repeatLabel({ recurrence_rule: "FREQ=HOURLY", due_at }, LAGOS)).toBeNull();
+  });
+
+  it("says who set a reminder in the group (P26)", () => {
+    expect(
+      createdInGroupLabel({ created_via: "group", created_by_phone_e164: "+2348012345678" }),
+    ).toBe("Set in the group by +234 801 234 5678");
+    expect(createdInGroupLabel({ created_via: "group", created_by_phone_e164: null })).toBe(
+      "Set in the group",
+    );
+    expect(
+      createdInGroupLabel({ created_via: "dashboard", created_by_phone_e164: null }),
+    ).toBeNull();
   });
 
   it("explains why a post needs attention", () => {

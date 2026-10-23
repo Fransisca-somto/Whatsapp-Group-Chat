@@ -14,6 +14,7 @@ import { StatusBadge, type Status } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import {
   attentionReason,
+  createdInGroupLabel,
   kindLabel,
   repeatLabel,
   type SchedulableGroup,
@@ -88,6 +89,7 @@ function PostRow({
   const [confirm, setConfirm] = useState<"cancel" | "resend" | null>(null);
   const [pending, startTransition] = useTransition();
   const repeat = repeatLabel(post, timeZone);
+  const setInGroup = createdInGroupLabel(post);
   const reason = tab === "attention" ? attentionReason(post) : "";
   const editable = post.status === "scheduled";
   const status: Status =
@@ -136,6 +138,7 @@ function PostRow({
             timeZone={timeZone}
           />
           {repeat && ` · ${repeat}`}
+          {setInGroup && ` · ${setInGroup}`}
         </p>
         {reason && <p className="text-xs text-status-warn">{reason}</p>}
       </div>

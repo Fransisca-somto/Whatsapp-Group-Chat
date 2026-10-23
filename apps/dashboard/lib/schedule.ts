@@ -1,6 +1,7 @@
 // Shapes and labels for reminders and announcements (ui-context.md §4 `/schedule`).
 import {
   describeRepeat,
+  formatPhoneForDisplay,
   localDateTimeInTz,
   parseRrule,
   type RepeatRule,
@@ -21,7 +22,7 @@ export const SCHEDULE_TAB_LABELS: Record<ScheduleTab, string> = {
 export const SCHEDULE_LIST_LIMIT = 100;
 
 export const SCHEDULED_POST_COLUMNS =
-  "id, group_id, kind, body, due_at, recurrence_rule, status, sent_at, sent_late, last_error, dismissed_at, groups(name)";
+  "id, group_id, kind, body, due_at, recurrence_rule, status, sent_at, sent_late, last_error, dismissed_at, created_via, created_by_phone_e164, groups(name)";
 
 export type ScheduledPostView = {
   id: string;
@@ -35,6 +36,9 @@ export type ScheduledPostView = {
   sent_late: boolean;
   last_error: string | null;
   dismissed_at: string | null;
+  /** `group`: set by tagging the bot (Phase 6). */
+  created_via: string;
+  created_by_phone_e164: string | null;
   groups: { name: string } | null;
 };
 
@@ -57,6 +61,16 @@ export function repeatLabel(
 ) {
   const rule = post.recurrence_rule ? parseRrule(post.recurrence_rule) : null;
   return rule ? describeRepeat(rule, post.due_at, timeZone) : null;
+}
+
+/** P26: "Set in the group by +234 801 234 5678" for a reminder set by tagging the bot. */
+export function createdInGroupLabel(
+  post: Pick<ScheduledPostView, "created_via" | "created_by_phone_e164">,
+): string | null {
+  if (post.created_via !== "group") return null;
+  return post.created_by_phone_e164
+    ? `Set in the group by ${formatPhoneForDisplay(post.created_by_phone_e164)}`
+    : "Set in the group";
 }
 
 /** P18: why a post is in Needs attention, in plain words. */
