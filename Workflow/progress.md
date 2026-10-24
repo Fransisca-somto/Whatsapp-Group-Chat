@@ -244,6 +244,11 @@ Newest first. One entry per working session.
 - Notes / issues: <anything the next session must know>
 ```
 
+### 2026-10-24 — Claude (Phase 6 live-test fix: recorded voice note left out of a post)
+- Owner: a scheduled post went out without the recorded audio. Checked read-only: the post was saved with no attachment and the storage bucket was empty, so the recording never left the browser (it waited for "Use recording", and saving didn't warn). Migration 0014 is applied; the worker sent what was saved.
+- Fix (owner-approved plan): the recorder and picker report unfinished work to the dialog; saving with a finished but unattached recording uploads and attaches it first (nothing is saved if that upload fails); **Schedule post** is disabled while recording or uploading, with the reason; "Use recording" is now "Attach recording". Tests added (`ScheduledPostDialog.pending.test.tsx`, picker status test); dashboard tests, typecheck and lint pass.
+- Changed docs: `ui-context.md`, `progress.md`.
+
 ### 2026-10-24 — Claude (Phase 6: attachments and voice notes, 6.6–6.10)
 - Owner asked for attachments (video, pictures, audio, documents) on reminders and announcements, uploaded from the app (the AI must not generate images), real audio and voice notes ("live audio" = recorded in the dashboard; live streams aren't possible for WhatsApp bots), kept inside Phase 6. Plan `Phases/09-Post-Attachments.md` approved with P27–P34; the scope change in `project-overview.md` was approved with it.
 - Done: migration `0014_post_attachments.sql` (bucket, storage policies, attachment columns and checks, `attachments_due_for_cleanup()`); shared `attachments.ts` and the optional attachment on the post schema (text optional with one; "*Reminder*" for an empty reminder); dashboard `AttachmentPicker`, `VoiceRecorder`, `lib/attachmentUpload.ts`, dialog preview, list icons, server actions storing attachments and deleting replaced files; worker send queue media + 60 s wait, `media/convertVoice.ts` (ffmpeg), scheduler attachment sending (audio / voice then text, P33), `db/attachmentsStore.ts`, `scheduler/attachmentCleanup.ts` (daily); Audit log labels.

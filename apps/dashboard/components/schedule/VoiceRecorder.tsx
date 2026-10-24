@@ -27,20 +27,36 @@ type State =
   | { step: "recording"; seconds: number }
   | { step: "recorded"; blob: Blob; seconds: number; url: string };
 
+/** What the recorder holds, so the form never saves without a finished recording. */
+export type RecorderStatus =
+  { step: "idle" } | { step: "recording" } | { step: "recorded"; blob: Blob; seconds: number };
+
 /**
- * Records a voice note with the microphone (P28): up to 5 minutes, listen back, re-record or use
- * it. Nothing leaves the browser until "Use recording".
+ * Records a voice note with the microphone (P28): up to 5 minutes, listen back, re-record or
+ * attach it. Nothing leaves the browser until it is attached (here, or when the post is saved).
  */
 export function VoiceRecorder({
   onUse,
   onCancel,
+  onStatusChange,
   disabled,
 }: {
   onUse: (recording: Blob, seconds: number) => void;
   onCancel: () => void;
+  onStatusChange?: (status: RecorderStatus) => void;
   disabled?: boolean;
 }) {
   const [state, setState] = useState<State>({ step: "idle" });
+  const step = state.step;
+  const recordedBlob = state.step === "recorded" ? state.blob : null;
+  const recordedSeconds = state.step === "recorded" ? state.seconds : 0;
+  useEffect(() => {
+    onStatusChange?.(
+      recordedBlob
+        ? { step: "recorded", blob: recordedBlob, seconds: recordedSeconds }
+        : { step: step === "recording" ? "recording" : "idle" },
+    );
+  }, [step, recordedBlob, recordedSeconds, onStatusChange]);
   const [error, setError] = useState<string | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -141,7 +157,7 @@ export function VoiceRecorder({
               disabled={disabled || state.seconds < 1}
             >
               <Check aria-hidden="true" />
-              Use recording ({clock(state.seconds)})
+              Attach recording ({clock(state.seconds)})
             </Button>
             <Button type="button" variant="outline" onClick={() => setState({ step: "idle" })}>
               <RotateCcw aria-hidden="true" />

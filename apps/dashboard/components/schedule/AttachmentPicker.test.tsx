@@ -98,6 +98,58 @@ describe("AttachmentPicker", () => {
   });
 });
 
+describe("pending recording reported to the form", () => {
+  it("reports recording, then the finished recording until it is attached", async () => {
+    class FakeRecorder {
+      static isTypeSupported = () => true;
+      state = "inactive";
+      mimeType: string;
+      ondataavailable: ((event: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      constructor(_stream: unknown, options: { mimeType: string }) {
+        this.mimeType = options.mimeType;
+      }
+      start() {
+        this.state = "recording";
+      }
+      stop() {
+        this.state = "inactive";
+        this.ondataavailable?.({ data: new Blob(["voice"], { type: this.mimeType }) });
+        this.onstop?.();
+      }
+    }
+    vi.stubGlobal("MediaRecorder", FakeRecorder);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: () => Promise.resolve({ getTracks: () => [{ stop: vi.fn() }] }) },
+    });
+    const onPendingChange = vi.fn();
+    render(
+      <AttachmentPicker
+        value={null}
+        previewUrl={null}
+        onUploaded={vi.fn()}
+        onRemove={vi.fn()}
+        onPendingChange={onPendingChange}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Record voice note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start recording" }));
+    await waitFor(() => expect(onPendingChange).toHaveBeenLastCalledWith({ step: "recording" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() =>
+      expect(onPendingChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({ step: "recorded", blob: expect.any(Blob) as unknown }),
+      ),
+    );
+    expect(screen.getByRole("button", { name: /Attach recording/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(onPendingChange).toHaveBeenLastCalledWith(null));
+    vi.unstubAllGlobals();
+  });
+});
+
 describe("VoiceRecorder", () => {
   it("explains a blocked microphone", async () => {
     vi.stubGlobal("MediaRecorder", { isTypeSupported: () => true });

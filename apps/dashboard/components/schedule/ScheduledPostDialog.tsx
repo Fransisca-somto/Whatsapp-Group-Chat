@@ -30,7 +30,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { discardUpload } from "@/lib/attachmentUpload";
+import { discardUpload, uploadVoiceNote } from "@/lib/attachmentUpload";
 import {
   KIND_LABELS,
   formValuesFromPost,
@@ -40,7 +40,7 @@ import {
 import { cn } from "@/lib/utils";
 import { createScheduledPost, updateScheduledPost } from "@/server/actions/schedule";
 
-import { AttachmentPicker } from "./AttachmentPicker";
+import { AttachmentPicker, type PendingAttachment } from "./AttachmentPicker";
 
 type Props = {
   groups: SchedulableGroup[];
@@ -83,6 +83,16 @@ const MONTH_DAY_LABELS: Record<string, string> = {
 function nextHourLocal(timeZone: string): string {
   return `${localDateTimeInTz(new Date(Date.now() + 60 * 60_000), timeZone).slice(0, 14)}00`;
 }
+
+/** Stands in for a recording that is attached on save, so the form checks pass before upload. */
+const RECORDING_PLACEHOLDER: Attachment = {
+  path: "00000000-0000-0000-0000-000000000000/voice-note.webm",
+  kind: "voice",
+  mime: "audio/webm",
+  name: "Voice note",
+  size: 1,
+  seconds: 1,
+};
 
 /** Weekday and day of month of a `YYYY-MM-DDTHH:mm` string, for repeat defaults. */
 function calendarOf(local: string): { weekday: Weekday; day: number } {
@@ -130,6 +140,13 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
   );
   const [attachment, setAttachment] = useState<Attachment | null>(initial.attachment);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment>(null);
+  const waitingFor =
+    pendingAttachment?.step === "recording"
+      ? "Finish the recording first (press Stop)."
+      : pendingAttachment?.step === "uploading"
+        ? "Wait for the upload to finish."
+        : null;
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   // Files uploaded in this form and not saved yet: removed again if the form closes unsaved.
@@ -184,16 +201,23 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
     );
 
   const save = () => {
-    const parsed = scheduledPostInputSchema.safeParse({
+    if (waitingFor) {
+      setError(waitingFor);
+      return;
+    }
+    // A finished recording that wasn't attached yet is attached now: the person clearly means
+    // to send it, and it must never be left out silently.
+    const recorded = pendingAttachment?.step === "recorded" ? pendingAttachment : null;
+    const check = scheduledPostInputSchema.safeParse({
       groupId,
       kind,
       body,
       dueAtLocal,
       repeat,
-      attachment,
+      attachment: attachment ?? (recorded ? RECORDING_PLACEHOLDER : null),
     });
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Check the post.");
+    if (!check.success) {
+      setError(check.error.issues[0]?.message ?? "Check the post.");
       return;
     }
     if (due && !due.ok) {
@@ -202,6 +226,30 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
     }
     setError(null);
     startTransition(async () => {
+      let saving = attachment;
+      if (recorded) {
+        const uploaded = await uploadVoiceNote(recorded.blob, recorded.seconds);
+        if (!uploaded.ok) {
+          setError(uploaded.error);
+          return;
+        }
+        unsaved.current.add(uploaded.attachment.path);
+        setAttachment(uploaded.attachment);
+        setPreviewUrl(URL.createObjectURL(recorded.blob));
+        saving = uploaded.attachment;
+      }
+      const parsed = scheduledPostInputSchema.safeParse({
+        groupId,
+        kind,
+        body,
+        dueAtLocal,
+        repeat,
+        attachment: saving,
+      });
+      if (!parsed.success) {
+        setError(parsed.error.issues[0]?.message ?? "Check the post.");
+        return;
+      }
       const result = post
         ? await updateScheduledPost({ ...parsed.data, id: post.id })
         : await createScheduledPost(parsed.data);
@@ -303,6 +351,7 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
             setPreviewUrl(url);
           }}
           onRemove={dropAttachment}
+          onPendingChange={setPendingAttachment}
         />
       </div>
 
@@ -428,7 +477,11 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={pending || tooLong || groups.length === 0}>
+        {waitingFor && <p className="text-xs text-muted-foreground sm:mr-auto">{waitingFor}</p>}
+        <Button
+          type="submit"
+          disabled={pending || tooLong || groups.length === 0 || waitingFor !== null}
+        >
           {pending && <Loader2 aria-hidden="true" className="animate-spin" />}
           {post ? "Save changes" : "Schedule post"}
         </Button>

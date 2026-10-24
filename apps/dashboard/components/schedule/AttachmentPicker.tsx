@@ -11,13 +11,23 @@ import {
   Paperclip,
   X,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { uploadFile, uploadVoiceNote } from "@/lib/attachmentUpload";
 import { attachmentLabel } from "@/lib/schedule";
 
-import { VoiceRecorder } from "./VoiceRecorder";
+import { VoiceRecorder, type RecorderStatus } from "./VoiceRecorder";
+
+/**
+ * Work in the picker that isn't attached yet. The form attaches a finished recording when the
+ * post is saved, and waits while a recording or an upload is still going.
+ */
+export type PendingAttachment =
+  | null
+  | { step: "recording" }
+  | { step: "uploading" }
+  | { step: "recorded"; blob: Blob; seconds: number };
 
 const ICONS = { image: ImageIcon, video: Film, audio: Music, voice: Mic, document: FileText };
 
@@ -30,18 +40,35 @@ export function AttachmentPicker({
   previewUrl,
   onUploaded,
   onRemove,
+  onPendingChange,
   disabled,
 }: {
   value: Attachment | null;
   previewUrl: string | null;
   onUploaded: (attachment: Attachment, previewUrl: string) => void;
   onRemove: () => void;
+  onPendingChange?: (pending: PendingAttachment) => void;
   disabled?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [recorder, setRecorder] = useState<RecorderStatus>({ step: "idle" });
   const [error, setError] = useState<string | null>(null);
+  const onRecorderStatus = useCallback((status: RecorderStatus) => setRecorder(status), []);
+
+  useEffect(() => {
+    const pending: PendingAttachment = uploading
+      ? { step: "uploading" }
+      : !recording || value
+        ? null
+        : recorder.step === "recording"
+          ? { step: "recording" }
+          : recorder.step === "recorded"
+            ? recorder
+            : null;
+    onPendingChange?.(pending);
+  }, [uploading, recording, recorder, value, onPendingChange]);
 
   const finish = (result: Awaited<ReturnType<typeof uploadFile>>, data: Blob) => {
     setUploading(false);
@@ -109,6 +136,7 @@ export function AttachmentPicker({
         <VoiceRecorder
           onUse={(blob, seconds) => void saveRecording(blob, seconds)}
           onCancel={() => setRecording(false)}
+          onStatusChange={onRecorderStatus}
           disabled={disabled || uploading}
         />
       ) : (
