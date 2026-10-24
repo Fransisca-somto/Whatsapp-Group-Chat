@@ -236,6 +236,15 @@ Newest first. One entry per working session.
 - Notes / issues: <anything the next session must know>
 ```
 
+### 2026-10-24 — Claude (Phase 6 live-test fix: reminder requests treated as questions)
+- Owner's first live test: "set a deadline for monday morning" got the correct confirmation, but "set a deadline for today 9:23am" and "can you set a reminder for tomorrow" were classified as `question`, and the answer replied that the bot can't set reminders and to ignore the earlier confirmation.
+- Causes: the intent prompt said "when unsure, use question", didn't say a request worded as a question is still a reminder, and earlier assistant replies (the wrong denial) biased the next classification; a missing time could also fail the schema (`dueAtLocal` required) and fall back to `question`. The answer prompt still said "You can only answer" from before Phase 6.
+- Fix (owner-approved plan): intent prompt covers reminders and deadlines in any wording (a question about an existing deadline stays a question), always gives a best-guess time with `confidence: low` when unclear, and ignores earlier assistant replies; answer prompt never denies reminders or tells people to ignore a confirmation, and says how to set one. Tests added (`prompts.test.ts`); worker 246 tests, typecheck, lint, format pass.
+- Also: the owner applied migration 0013 and regenerated `database.types.ts`; the generated file added `dismissed_at` to `claim_due_posts`' return type, which the Phase 5 hand edit had missed (committed).
+- A network outage at 09:29–09:34 (all Supabase calls failing, WhatsApp 408/428) made the worker fence and recover as designed; one tag at 09:31 was not answered.
+- Next: owner re-runs the live test (today 9:23am → too soon; reminder for tomorrow → asks for the time; Monday morning → confirm with yes).
+- Changed docs: `api-interfaces.md` §5.1–5.2, `progress.md`.
+
 ### 2026-10-23 — Claude (Phase 6 built: reminders by tag)
 - Task(s): 6.1–6.5 on branch `phase-6` (from `main` after PR #5). Plan approved with P21–P26 as written.
 - Done: `/authorized-users` (list, add / edit / turn off / remove, `<PhoneInput>`, server actions with group links and duplicate-number message, audited); shared `reminders.ts` (`replyWord`, `checkReminderDraft`, `reminderTimeInTz`, limits); worker `reminders/permission.ts`, `reminders/reminderFlow.ts`, `db/authorizedUsersRepo.ts`, `db/reminderRequestsRepo.ts`; pipeline `create_reminder` → flow, tagged yes/no checked before the AI gates, `assistant.handleReplyWord` for untagged yes/no (routed by ingest through the group queue); scheduler tick step 2 expiry; new templates (`remindersNotYet` removed); `groups.reminder_permission` read with the assistant settings; dashboard "Set in the group by …" (P26) and Audit log labels.
