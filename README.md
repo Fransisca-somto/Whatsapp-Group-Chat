@@ -57,8 +57,8 @@ docker build -f apps/worker/Dockerfile -t group-assistant-worker .
 
 1. On railway.com: **New Project → Deploy from GitHub repo** → pick this repository. Railway deploys again whenever `main` changes.
 2. Open the service → **Settings**:
-   - **Build:** builder *Dockerfile*, Dockerfile path `apps/worker/Dockerfile`, root directory `/` (the repository root).
-   - **Deploy:** replicas **1**; restart policy *On failure*.
+   - **Build:** builder _Dockerfile_, Dockerfile path `apps/worker/Dockerfile`, root directory `/` (the repository root).
+   - **Deploy:** replicas **1**; restart policy _On failure_.
    - **Networking:** no public domain (leave it off).
    - **Region:** the one closest to your Supabase project (Supabase → Project Settings → General shows its region).
 3. **Variables:** add the worker variables above, plus `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=15` (requirement 3).
