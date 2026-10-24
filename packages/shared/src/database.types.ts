@@ -585,6 +585,13 @@ export type Database = {
       }
       scheduled_posts: {
         Row: {
+          attachment_deleted_at: string | null
+          attachment_kind: string | null
+          attachment_mime: string | null
+          attachment_name: string | null
+          attachment_path: string | null
+          attachment_seconds: number | null
+          attachment_size: number | null
           body: string
           claim_token: string | null
           claimed_at: string | null
@@ -607,6 +614,13 @@ export type Database = {
           wa_message_id: string | null
         }
         Insert: {
+          attachment_deleted_at?: string | null
+          attachment_kind?: string | null
+          attachment_mime?: string | null
+          attachment_name?: string | null
+          attachment_path?: string | null
+          attachment_seconds?: number | null
+          attachment_size?: number | null
           body: string
           claim_token?: string | null
           claimed_at?: string | null
@@ -629,6 +643,13 @@ export type Database = {
           wa_message_id?: string | null
         }
         Update: {
+          attachment_deleted_at?: string | null
+          attachment_kind?: string | null
+          attachment_mime?: string | null
+          attachment_name?: string | null
+          attachment_path?: string | null
+          attachment_seconds?: number | null
+          attachment_size?: number | null
           body?: string
           claim_token?: string | null
           claimed_at?: string | null
@@ -768,9 +789,22 @@ export type Database = {
         Returns: boolean
       }
       check_worker_offline: { Args: never; Returns: undefined }
+      attachments_due_for_cleanup: {
+        Args: { p_limit?: number }
+        Returns: {
+          attachment_path: string
+        }[]
+      }
       claim_due_posts: {
         Args: { p_claim_token: string; p_limit?: number }
         Returns: {
+          attachment_deleted_at: string | null
+          attachment_kind: string | null
+          attachment_mime: string | null
+          attachment_name: string | null
+          attachment_path: string | null
+          attachment_seconds: number | null
+          attachment_size: number | null
           body: string
           claim_token: string | null
           claimed_at: string | null
