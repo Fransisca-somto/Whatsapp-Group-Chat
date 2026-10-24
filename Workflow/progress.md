@@ -10,9 +10,9 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 6 — Tag-to-Create Reminders (Phase 0–3, 5 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | 6.1–6.5 built on branch `phase-6` (plan: `Workflow/Phases/08-Tag-Reminders.md`). Next: owner applies migration 0013, regenerates types, restarts the worker and runs the live test |
+| **Current task** | 6.1–6.10 built on `phase-6`. Next: owner applies migration 0014, restarts the worker and runs the reminder and attachment live tests |
 | **Blockers** | None |
-| **Last updated** | 2026-10-23 (Phase 6 built, migration 0013) |
+| **Last updated** | 2026-10-24 (Phase 6 attachments and voice notes built, migration 0014) |
 
 ---
 
@@ -82,6 +82,11 @@ Plan: `Workflow/Phases/08-Tag-Reminders.md` (owner-approved 2026-10-23, P21–P2
 - 🟦 6.3 Reminder parsing in company timezone; code validation. Built; awaiting the live test.
 - 🟦 6.4 Confirmation state machine (requester only, yes/no, 2-minute expiry, one pending per user per group). Built; awaiting migration 0013 and the live test.
 - 🟦 6.5 Polite refusals for unauthorized users and dashboard-only requests (edit, cancel, recurring). Built; awaiting the live test.
+- 🟦 6.6 Attachments: storage bucket, policies and post columns (migration 0014). Plan: `Workflow/Phases/09-Post-Attachments.md` (owner-approved 2026-10-24, P27–P34). Built; awaiting migration 0014.
+- 🟦 6.7 Dashboard: attach a file or record a voice note on a post. Built; awaiting the live test.
+- 🟦 6.8 Worker: send attachments (caption on photo / video / document; audio and voice notes then the text). Built; awaiting the live test.
+- 🟦 6.9 Daily cleanup of unused attachments. Built; awaiting the live test.
+- 🟦 6.10 Scope change and docs. Done (scope approved by the owner with the plan).
 - **Exit criteria:** authorized user creates a reminder end-to-end; others are refused; nothing saved without "yes"; expired requests leave no reminder.
 
 ### Phase 7 — Hardening ⬜
@@ -204,6 +209,9 @@ Decision: The scheduler claims only while WhatsApp is open. A post that never re
 **ADR-035 — Confirming tag-created reminders · 2026-10-23 · Accepted (owner decisions P21–P24, P26)**
 Decision: A "yes"/"no" counts only when it is the whole message (fixed word lists; @mentions, spaces and surrounding punctuation ignored), from the requester, in the same group, within 2 minutes; it works untagged, as a reply, or as a tag, and is checked before the AI. Confirming is one database step (`confirm_reminder_request()`, migration 0013) that creates the reminder and marks the request, so a double "yes" or a late one never creates a second or stale reminder. A yes/no up to 10 minutes after expiry gets "That request has expired, so nothing was set" (replaces the silent-expiry default for that case; expiry itself still sends nothing). Reminders must be 3 minutes to 1 year ahead. Reminders set in a group show who set them on the dashboard. Consequences: no AI cost for confirmations; "yes please" is not a confirmation; in admins-only groups, people whose number WhatsApp hides cannot set reminders (they are told why).
 
+**ADR-036 — Attachments and voice notes on dashboard posts · 2026-10-24 · Accepted (owner decisions P27–P34; scope addition)**
+Decision: A dashboard post may carry one attachment that a person uploaded (photo, video, audio, document; ≤ 16 MB) or a voice note recorded in the dashboard (≤ 5 minutes). Files live in a private Supabase Storage bucket; the browser uploads them directly with the user's session (storage policies: dashboard users only). The scheduler fetches the file before sending, so a missing file just delays the post; photos, videos and documents carry the text as caption, while audio and voice notes go first and the text follows as a second message (the post is sent once the audio is confirmed; a failed text is noted, never resent). Recordings are converted to WhatsApp's voice-note format with ffmpeg (`ffmpeg-static`, new worker dependency). WhatsApp gets 60 s to confirm media. Files are deleted daily once every post using them is cancelled or finished more than 30 days ago. The AI never creates, edits or chooses media; tag-created reminders stay text-only. Consequences: the worker install includes an ~80 MB ffmpeg binary downloaded from GitHub; storage use stays small with the cleanup; the at-most-once rules are unchanged.
+
 ---
 
 ## Open Defaults to Confirm
@@ -235,6 +243,15 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-24 — Claude (Phase 6: attachments and voice notes, 6.6–6.10)
+- Owner asked for attachments (video, pictures, audio, documents) on reminders and announcements, uploaded from the app (the AI must not generate images), real audio and voice notes ("live audio" = recorded in the dashboard; live streams aren't possible for WhatsApp bots), kept inside Phase 6. Plan `Phases/09-Post-Attachments.md` approved with P27–P34; the scope change in `project-overview.md` was approved with it.
+- Done: migration `0014_post_attachments.sql` (bucket, storage policies, attachment columns and checks, `attachments_due_for_cleanup()`); shared `attachments.ts` and the optional attachment on the post schema (text optional with one; "*Reminder*" for an empty reminder); dashboard `AttachmentPicker`, `VoiceRecorder`, `lib/attachmentUpload.ts`, dialog preview, list icons, server actions storing attachments and deleting replaced files; worker send queue media + 60 s wait, `media/convertVoice.ts` (ffmpeg), scheduler attachment sending (audio / voice then text, P33), `db/attachmentsStore.ts`, `scheduler/attachmentCleanup.ts` (daily); Audit log labels.
+- Install note: `ffmpeg-static` first failed to install (GitHub blocked on this network); a later `pnpm` run installed 5.3.0 successfully, and the real conversion tests pass (a browser WebM recording becomes Ogg/Opus). The worker loads ffmpeg at runtime and also treats a half-installed package (no binary) as missing.
+- Plan deviations, small: no upload progress bar (supabase-js gives none), "Uploading…" instead; a file deleted by the cleanup is kept as history (`attachment_deleted_at`) rather than clearing the columns, so empty-text posts stay valid; removing an unused file when a post is cancelled happens in the next daily cleanup, not instantly.
+- Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, tests (shared 96, worker 262, dashboard 138), dashboard build: all pass.
+- **Needs the owner:** apply 0014 (`pnpm supabase db push`), regenerate types, restart the worker and dashboard, then the live tests in the plan's Verify section (photo, PDF, video, MP3, recorded voice note, oversized file, cancelled post's file). Phase 6 reminder live-test results (6.1–6.5) are still to be reported.
+- Changed docs: `project-overview.md` (owner-approved), `progress.md`, `data-models.md`, `api-interfaces.md`, `architecture.md`, `ui-context.md`.
 
 ### 2026-10-24 — Claude (Phase 6 live-test fix: reminder requests treated as questions)
 - Owner's first live test: "set a deadline for monday morning" got the correct confirmation, but "set a deadline for today 9:23am" and "can you set a reminder for tomorrow" were classified as `question`, and the answer replied that the bot can't set reminders and to ignore the earlier confirmation.

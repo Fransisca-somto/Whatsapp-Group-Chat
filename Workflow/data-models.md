@@ -166,8 +166,16 @@ Partial unique index: one `awaiting` row per (`group_id`, `requester_jid`). A ne
 | wa_message_id | text | Set after successful send |
 | last_error | text | |
 | dismissed_at | timestamptz | Set when an admin dismisses a failed / uncertain / skipped post from Needs attention (0012, P18) |
+| attachment_path | text | Path in the `post-attachments` bucket, `<uuid>/<safe file name>` (0014); null without an attachment |
+| attachment_kind | text | `image`,`video`,`audio`,`voice`,`document` (`voice` = recorded in the dashboard) |
+| attachment_mime | text | The file's type |
+| attachment_name | text | Original file name ("Voice note" for recordings); a document is sent under this name |
+| attachment_size | int | Bytes, 1–16,777,216 |
+| attachment_seconds | int | Voice note length, 1–300; set only for `voice` |
+| attachment_deleted_at | timestamptz | Set by the daily cleanup when the file is deleted; the details stay for history, and the post can no longer send the file |
 
-Indexes: (`status`, `due_at`) where status = 'scheduled'; unique `scheduled_posts_one_upcoming_per_series` on `(coalesce(parent_post_id, id))` where `status = 'scheduled' and recurrence_rule is not null` (a series has at most one waiting post, so it can never fork; 0012); (`due_at desc`) where status is `failed` / `delivery_uncertain` / `skipped_late` and `dismissed_at` is null (Needs attention list, 0012).
+Checks (0014): the attachment columns are all set or all empty (a voice note always has its length, nothing else does); `body` is 0–2,000 characters and may be empty only when there is an attachment.
+Indexes: (`attachment_path`) where it is set and not deleted (0014); (`status`, `due_at`) where status = 'scheduled'; unique `scheduled_posts_one_upcoming_per_series` on `(coalesce(parent_post_id, id))` where `status = 'scheduled' and recurrence_rule is not null` (a series has at most one waiting post, so it can never fork; 0012); (`due_at desc`) where status is `failed` / `delivery_uncertain` / `skipped_late` and `dismissed_at` is null (Needs attention list, 0012).
 
 **Status state machine**
 ```
@@ -342,6 +350,11 @@ Returns false when no row was updated. (Implemented in plpgsql with `return foun
 ### 5.7 Retention (migration `0011_search_indexing_and_retention.sql`, ADR-032)
 - `purge_expired_messages() returns int`: for each group with `retention_days` set, deletes its `group_messages` with `sent_at` older than that many days (5,000 per batch) and writes one `messages_purged` audit row per group that lost messages. Returns the total deleted. `security definer`, `service_role` only.
 - `pg_cron` job `purge-expired-messages` runs it daily at 03:00 UTC (04:00 Lagos). It runs in the database, so it works even when the worker is down. The migration unschedules any job with that name first.
+
+### 5.9 Post attachments (migration `0014_post_attachments.sql`, ADR-036)
+- **Storage bucket** `post-attachments`: private, 16 MB per file, allowed types only (JPG, PNG, WEBP, MP4, MP3, M4A, OGG, AAC, PDF, Word, Excel, PowerPoint, TXT, plus the browser recording formats WebM / Ogg / MP4 audio); Supabase enforces both. Re-running the migration updates the limits.
+- **Storage policies** on `storage.objects` for that bucket: `authenticated` users with a dashboard role may select, insert and delete; nobody else. The worker uses the service role.
+- `attachments_due_for_cleanup(p_limit int default 100) returns table (attachment_path text)`: files whose every post is `cancelled`, or `sent` / `failed` / `delivery_uncertain` / `skipped_late` and last updated more than 30 days ago (so no post using them is waiting or sending), and not yet deleted. `security definer`, `service_role` only. The worker deletes them from storage and sets `attachment_deleted_at` (P30).
 
 ### 5.8 Reminder confirmation (migration `0013_tag_reminders.sql`, ADR-035)
 - `confirm_reminder_request(p_request_id uuid, p_requester_jid text) returns uuid`: in one transaction, locks the request if it is `awaiting`, not expired and from this requester; inserts the `scheduled_posts` row (`kind = 'reminder'`, `created_via = 'group'`, `created_by_phone_e164` = the requester's phone, the draft text and time); sets the request `confirmed` with `scheduled_post_id`. Returns the post id, or null when nothing was confirmed (expired, already answered, or someone else). A second "yes" waits on the lock, then finds it confirmed: a double "yes" never creates two reminders. `security definer`, `service_role` only.

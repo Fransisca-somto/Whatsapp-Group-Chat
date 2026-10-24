@@ -72,6 +72,7 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 | `createScheduledPost` | owner, staff | `ScheduledPostInput { groupId, kind, body (1–2,000), dueAtLocal, repeat: RepeatRule \| null }` (shared `scheduledPostInputSchema`). The group must be `active` or `paused`. `resolveDueAt` converts the time from the company timezone; a repeating post starts on the first matching day at or after it; it must be 1 minute to 1 year ahead. The rule is stored as RRULE text (`repeatRuleToRrule`). | ✅ `post_created` (detail `postId`, `kind`, `dueAt`, `repeat`, `characters`) |
 | `updateScheduledPost` | owner, staff | `{ id, ...ScheduledPostInput }`; conditional on `status = 'scheduled'`, so a claimed post can't be changed ("This post is being sent or has already gone out.") | ✅ `post_updated` |
 | `cancelScheduledPost` | owner, staff | `{ id }`; only while `scheduled`. Cancelling the waiting post of a series ends the series. | ✅ `post_cancelled` (detail `endedSeries`) |
+| *(attachments)* | owner, staff | `createScheduledPost` / `updateScheduledPost` take `attachment: Attachment \| null` (shared `attachmentSchema`: `path`, `kind`, `mime`, `name`, `size` ≤ 16 MB, `seconds` for voice ≤ 300; the type must match the kind); text may then be empty (P32). The file is uploaded **by the browser** straight to the `post-attachments` bucket with the user's session (`lib/attachmentUpload.ts`; type and size checked first), never through the server. Updating to a different file deletes the old one if no other post uses it; uploads never saved are removed when the dialog closes. Audit detail adds `attachment` (kind). | ✅ |
 | `resendScheduledPost` | owner, staff | `{ id }`; only `failed` / `delivery_uncertain` / `skipped_late` → `scheduled`, `due_at = now`, `recurrence_rule = null`, claim and error cleared, `dismissed_at = null`. | ✅ `post_resent` |
 | `dismissScheduledPost` | owner, staff | `{ id }`; only those statuses with `dismissed_at` null → `dismissed_at = now` (moves to History). | ✅ `post_dismissed` |
 | `requestPairing` | owner | `PairingRequestInput { kind, phoneE164 }` (shared `pairingRequestInputSchema`). An already-open request returns "A pairing request is already open. Cancel it first." | ✅ `pairing_requested` / `relink_requested` |
@@ -114,9 +115,11 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 
 `models` lists chat models only; the question's embedding is included in `inputTokens` and `costUsd`.
 
-**Scheduler audit actions** (worker, `actor_type = 'system'`, `actor_ref = 'scheduler'`, detail always `postId`, `kind`): `post_sent` (`late`, `waMessageId`), `post_failed` (`error`), `post_uncertain` (`reason`: "WhatsApp did not confirm in time" or "worker stopped while sending"), `post_skipped_late` (`dueAt`).
+**Scheduler audit actions** (worker, `actor_type = 'system'`, `actor_ref = 'scheduler'`, detail always `postId`, `kind`): `post_sent` (`late`, `waMessageId`, and with an attachment `attachment` (kind) and for audio / voice with text `textSent`), `post_failed` (`error`), `post_uncertain` (`reason`: "WhatsApp did not confirm in time" or "worker stopped while sending"), `post_skipped_late` (`dueAt`).
 
 **Reminder audit actions** (Phase 6; the requester's tag or reply, `actor_type = 'member'`): `reminder_requested` (`requestId`, `dueAt`), `reminder_unclear` (`reason`: `unclear_time` / `too_soon` / `too_far` / `bad_text`), `refused_unauthorized` (`reason`: `not_authorized` / `no_phone`), `reminder_confirmed` (`requestId`, `postId`, `dueAt`), `reminder_declined` (`requestId`), `reminder_late_reply` (a yes/no up to 10 minutes after expiry). System: `reminder_expired` (`requestId`, by the scheduler tick). A tagged confirmation also sets the tag's `handled_status`; an untagged "yes"/"no" has none.
+
+**Attachment cleanup audit action** (worker, `actor_type = 'system'`, `actor_ref = 'cleanup'`): `attachment_deleted` (`postId`, `kind`; never the file).
 
 **Retention audit action** (database, `actor_type = 'system'`, `actor_ref = 'retention'`): `messages_purged`, detail `count`, `retentionDays` (data-models.md §5.7).
 
@@ -149,11 +152,12 @@ createSendQueue({ getSocket, logger }) → {
     text: string;
     quoted?: WAMessage;          // the raw tagged message; the reply quotes it
     showTyping?: boolean;        // composing presence 2–4 s first (AI replies)
+    media?: OutgoingMedia;       // scheduled posts: image | video | audio | document | voice
   }): Promise<{ waMessageId: string }>;  // rejects with SendError (not_connected / send_failed / timeout / stopped)
   stop(): void;
 }
 ```
-Single-flight queue, ≥ 1.5 s between sends plus up to 1 s jitter, 15 s send timeout; one failure never blocks the queue. `getSocket` returns the socket only while this instance holds the lock, and the queue is stopped when the leader session stops. The pipeline stores each sent reply in `group_messages` with `is_from_bot = true` (Baileys reports our own sends as `append`, which ingest ignores). `SocketLike` gained `sendMessage` and `sendPresenceUpdate`.
+Single-flight queue, ≥ 1.5 s between sends plus up to 1 s jitter, 15 s send timeout (**60 s with media**, P31); `messageContent()` builds the WhatsApp message: photo / video / document with the text as caption (a document under its file name), audio as playable audio (`ptt: false`), voice as a voice note (`audio/ogg; codecs=opus`, `ptt: true`, with its length), never a caption on audio; an empty message with no media is refused; one failure never blocks the queue. `getSocket` returns the socket only while this instance holds the lock, and the queue is stopped when the leader session stops. The pipeline stores each sent reply in `group_messages` with `is_from_bot = true` (Baileys reports our own sends as `append`, which ingest ignores). `SocketLike` gained `sendMessage` and `sendPresenceUpdate`.
 
 ---
 
@@ -336,6 +340,9 @@ createScheduler({ store, send, isConnected, settings, audit, recordBotMessage, l
   tick(): Promise<void>;
 };
 // Leader-only; started after the connection, stopped before the send queue.
+// Also takes attachments (AttachmentsStore.download) and convertVoice (media/convertVoice.ts).
+createAttachmentCleanup({ store, audit, logger }) → { start(); stop(); runOnce() };
+// Leader-only; first run 10 minutes after start, then daily (P30).
 // isConnected = lock held && ConnectionManager.isOpen().
 
 // health/
@@ -348,12 +355,14 @@ heartbeat(): Promise<void>; checkAlerts(): Promise<void>;
 2. Expire `pending_reminder_requests` past `expires_at` (`reminders.expireOverdue`, audit `reminder_expired`). Runs every tick, **before** the connection check: it only changes the database.
 3. `scheduled` rows of **active** groups with `due_at < now() - 2h` → `skipped_late` (audit `post_skipped_late`), then their next date if repeating.
 4. `claim_due_posts(token, 10)` (up to 5 batches per tick) → for each, at least **3 s** after the previous post: send through the send queue (no quote, no typing), with `lateNote` on a new line if more than 2 min late. Every finishing update matches the claim token and `sending`.
-   - sent → `sent`, `sent_at`, `wa_message_id`, `sent_late`; stored in `group_messages` as a bot message (so search indexing skips it); audit `post_sent`.
+   - **Attachment first** (Phase 6, 6.8): the file is downloaded from storage (service role) and a voice note converted to Ogg/Opus mono 48 kHz with ffmpeg (`media/convertVoice.ts`, `ffmpeg-static`, 30 s limit) **before** anything is sent. If that fails (file gone, storage down, ffmpeg missing) nothing reached WhatsApp: the post goes back to `scheduled` and the rest of the batch continues; after 2 h it is skipped like any late post. A file the cleanup deleted is not sent (the post goes out as text only).
+   - Photo / video / document: one message, the text as caption. Audio / voice note: the audio first; once confirmed the post is `sent`; then the text (if any) as a second message. If that text fails, `last_error = 'text not sent'` and nothing is resent (P33).
+   - sent → `sent`, `sent_at`, `wa_message_id` (of the first message), `sent_late`; each message is stored in `group_messages` as a bot message with its type (`image` / `video` / `audio` / `document` / `text`), so search indexing skips it; audit `post_sent`.
    - `SendError` `not_connected` / `stopped` (nothing reached WhatsApp) → back to `scheduled`; the rest of the batch too; the tick ends.
    - `send_failed` (WhatsApp rejected it) → `failed` + `last_error`; audit `post_failed`.
    - `timeout` or any other error (it may be in the group) → `delivery_uncertain`; audit `post_uncertain`.
    - Never resent automatically (ADR-011). A database error after a successful send leaves the row `sending`, which step 0 turns into `delivery_uncertain`.
-5. A repeating post that left `scheduled` for good (not one put back) gets the next occurrence: same group, kind, text and rule, `parent_post_id` = the first post of the series, `due_at` = the first matching date **after now** at the series' time of day (P19). The unique index refuses a second waiting row, so a series never forks.
+5. A repeating post that left `scheduled` for good (not one put back) gets the next occurrence: same group, kind, text, attachment and rule, `parent_post_id` = the first post of the series, `due_at` = the first matching date **after now** at the series' time of day (P19). The unique index refuses a second waiting row, so a series never forks.
 
 ### 8.2 Concurrency
 Tagged messages are processed through a **per-group serial queue** (one at a time per group, groups in parallel). This guarantees ordered replies and correct confirmation matching.

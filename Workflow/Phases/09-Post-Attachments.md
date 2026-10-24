@@ -1,7 +1,7 @@
 # Step 09 — Phase 6 (continued): Attachments and Voice Notes on Reminders and Announcements
 
 > Requested by the owner on 2026-10-24 and kept inside Phase 6 (tasks **6.6–6.10**, branch `phase-6`). A scope addition: `project-overview.md` changes only with the owner's approval.
-> Status: **plan, awaiting owner approval.** No code is written until the owner approves (CLAUDE.md §1).
+> Status: **approved 2026-10-24 (P27–P34 as written, with the scope change); built on `phase-6`.**
 
 ## Goal
 On the dashboard, an admin can add one file they upload themselves (photo, video, audio, document) **or record a voice note** to a reminder or announcement. At the set time the bot posts it in the group with the text. Audio arrives as real WhatsApp audio and recordings as WhatsApp voice notes. **The AI never creates, edits or chooses images, audio or files**; the bot only sends what a person uploaded or recorded.
