@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 6 — Tag-to-Create Reminders (Phase 0–3, 5 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | 6.1–6.10 built on `phase-6`. Next: owner applies migration 0014, restarts the worker and runs the reminder and attachment live tests |
+| **Current phase** | Phase 7 — Hardening, not started (Phase 0–3, 5, 6 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
+| **Current task** | Merge `phase-6` into `main` (owner pushed it 2026-10-24); then plan Phase 7, including moving the worker to a host (Railway / Fly.io) |
 | **Blockers** | None |
-| **Last updated** | 2026-10-24 (Phase 6 attachments and voice notes built, migration 0014) |
+| **Last updated** | 2026-10-24 (Phase 6 complete) |
 
 ---
 
@@ -75,18 +75,18 @@ Plan: `Workflow/Phases/07-Scheduler.md` (owner-approved 2026-10-23, P14–P20; s
 - ✅ 5.5 "Needs attention" tab with Resend for uncertain items. Live test passed 2026-10-23.
 - **Exit criteria:** posts arrive within 30 s of due time; crash-and-restart never produces a duplicate.
 
-### Phase 6 — Tag-to-Create Reminders 🟦
+### Phase 6 — Tag-to-Create Reminders ✅
 Plan: `Workflow/Phases/08-Tag-Reminders.md` (owner-approved 2026-10-23, P21–P26).
-- 🟦 6.1 Authorized users page (name, phone, scope). Built; awaiting the live test.
-- 🟦 6.2 Per-group permission toggle enforcement (admins only / any member). Built; awaiting the live test.
-- 🟦 6.3 Reminder parsing in company timezone; code validation. Built; awaiting the live test.
-- 🟦 6.4 Confirmation state machine (requester only, yes/no, 2-minute expiry, one pending per user per group). Built; awaiting migration 0013 and the live test.
-- 🟦 6.5 Polite refusals for unauthorized users and dashboard-only requests (edit, cancel, recurring). Built; awaiting the live test.
-- 🟦 6.6 Attachments: storage bucket, policies and post columns (migration 0014). Plan: `Workflow/Phases/09-Post-Attachments.md` (owner-approved 2026-10-24, P27–P34). Built; awaiting migration 0014.
-- 🟦 6.7 Dashboard: attach a file or record a voice note on a post. Built; awaiting the live test.
-- 🟦 6.8 Worker: send attachments (caption on photo / video / document; audio and voice notes then the text). Built; awaiting the live test.
-- 🟦 6.9 Daily cleanup of unused attachments. Built; awaiting the live test.
-- 🟦 6.10 Scope change and docs. Done (scope approved by the owner with the plan).
+- ✅ 6.1 Authorized users page (name, phone, scope). Live test passed 2026-10-24.
+- ✅ 6.2 Per-group permission toggle enforcement (admins only / any member). Live test passed 2026-10-24.
+- ✅ 6.3 Reminder parsing in company timezone; code validation. Live test passed 2026-10-24.
+- ✅ 6.4 Confirmation state machine (requester only, yes/no, 2-minute expiry, one pending per user per group). Live test passed 2026-10-24.
+- ✅ 6.5 Polite refusals for unauthorized users and dashboard-only requests (edit, cancel, recurring). Live test passed 2026-10-24.
+- ✅ 6.6 Attachments: storage bucket, policies and post columns (migration 0014). Plan: `Workflow/Phases/09-Post-Attachments.md` (owner-approved 2026-10-24, P27–P34). Live test passed 2026-10-24.
+- ✅ 6.7 Dashboard: attach a file or record a voice note on a post. Live test passed 2026-10-24.
+- ✅ 6.8 Worker: send attachments (caption on photo / video / document; audio and voice notes then the text). Live test passed 2026-10-24.
+- ✅ 6.9 Daily cleanup of unused attachments. Live test passed 2026-10-24.
+- ✅ 6.10 Scope change and docs. Live test passed 2026-10-24.
 - **Exit criteria:** authorized user creates a reminder end-to-end; others are refused; nothing saved without "yes"; expired requests leave no reminder.
 
 ### Phase 7 — Hardening ⬜
@@ -243,6 +243,11 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-24 — Claude (Phase 6 complete)
+- Owner pushed `phase-6` to GitHub and reported "it's working well now" after the fixes (reminder requests as questions; unattached recording on save). Tasks 6.1–6.10 and Phase 6 marked ✅.
+- Not recorded step by step: which individual reminder and attachment checks were run (e.g. someone else's "yes", the expired reply, an oversized file). Worth a quick recheck during Phase 7's load test.
+- Next: merge `phase-6` into `main`; plan Phase 7 (hardening), including moving the worker off the owner's PC to a host, since the local network drops Supabase and WhatsApp (logs 2026-10-24).
 
 ### 2026-10-24 — Claude (Phase 6 live-test fix: recorded voice note left out of a post)
 - Owner: a scheduled post went out without the recorded audio. Checked read-only: the post was saved with no attachment and the storage bucket was empty, so the recording never left the browser (it waited for "Use recording", and saving didn't warn). Migration 0014 is applied; the worker sent what was saved.
