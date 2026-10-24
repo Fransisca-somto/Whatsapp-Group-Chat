@@ -44,6 +44,12 @@ describe("audit labels", () => {
     expect(actionLabel("messages_purged")).toBe("Old messages deleted");
     expect(actionLabel("post_uncertain")).toBe("Delivery uncertain");
     expect(actionLabel("attachment_deleted")).toBe("Unused attachment deleted");
+    expect(auditSummary({ action: "relink_started", detail: { groups: 3 } })).toBe(
+      "3 groups to re-add",
+    );
+    expect(auditSummary({ action: "group_readmitted", detail: { status: "active" } })).toBe(
+      "back to active",
+    );
     expect(auditSummary({ action: "attachment_deleted", detail: { kind: "voice" } })).toBe("voice");
     expect(auditSummary({ action: "refused_unauthorized", detail: { reason: "no_phone" } })).toBe(
       "number not visible",

@@ -52,6 +52,36 @@ describe("group directory", () => {
     expect(t.audit.entries.map((e) => e.action)).toEqual(["group_readded"]);
   });
 
+  describe("after a number change (7.1, P38)", () => {
+    it("brings active and paused groups back to their status when the new number is added", async () => {
+      const t = setup([
+        { jid: A, name: "Sales", status: "active" },
+        { jid: B, name: "Ops", status: "paused" },
+        { jid: C, name: "New", status: "pending" },
+      ]);
+      expect(await t.groups.store.markForRelink(new Date(0))).toBe(2); // pending isn't recorded
+      for (const jid of [A, B, C]) await t.directory.gone(jid, "not in the group");
+      expect(t.groups.rows.map((r) => r.status)).toEqual(["removed", "removed", "removed"]);
+
+      await t.directory.present(A, "Sales");
+      await t.directory.present(B, "Ops");
+      await t.directory.present(C, "New");
+      expect(t.groups.rows.map((r) => r.status)).toEqual(["active", "paused", "pending"]);
+      expect(t.groups.relink.size).toBe(0); // records cleared
+      expect(t.audit.entries.filter((e) => e.action === "group_readmitted")).toHaveLength(2);
+      expect(t.audit.entries.at(-1)).toMatchObject({ action: "group_readded" }); // C: approval again
+    });
+
+    it("needs approval again more than 30 days after the number change", async () => {
+      const t = setup([{ jid: A, name: "Sales", status: "active" }]);
+      await t.groups.store.markForRelink(new Date(0));
+      await t.directory.gone(A, "not in the group");
+      t.advance(31 * 24 * 60 * 60_000);
+      await t.directory.present(A, "Sales");
+      expect(t.groups.rows[0]?.status).toBe("pending");
+    });
+  });
+
   it("marks live groups removed when the bot leaves, and ignores the rest", async () => {
     const t = setup([
       { jid: A, name: "Active", status: "active" },

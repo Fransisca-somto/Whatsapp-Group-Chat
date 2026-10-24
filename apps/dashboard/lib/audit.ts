@@ -69,6 +69,8 @@ export const ACTION_LABELS: Record<string, string> = {
   authorized_user_updated: "Authorized user changed",
   authorized_user_deleted: "Authorized user removed",
   attachment_deleted: "Unused attachment deleted",
+  relink_started: "Number change started",
+  group_readmitted: "Group back after number change",
 };
 
 export function actionLabel(action: string): string {
@@ -167,6 +169,12 @@ export function auditSummary(row: Pick<AuditRow, "action" | "detail">): string {
       const what = `${count.toLocaleString("en")} ${count === 1 ? "message" : "messages"}`;
       return days ? `${what} older than ${days} days` : what;
     }
+    case "relink_started": {
+      const count = Number(field(d, "groups")) || 0;
+      return `${count} ${count === 1 ? "group" : "groups"} to re-add`;
+    }
+    case "group_readmitted":
+      return text(field(d, "status")) ? `back to ${text(field(d, "status"))}` : "";
     case "attachment_deleted":
       return text(field(d, "kind")) ?? "";
     case "post_created":

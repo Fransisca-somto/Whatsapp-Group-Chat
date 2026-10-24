@@ -18,6 +18,8 @@ export type GroupDirectory = {
 
 /** A group in one of these statuses becomes `removed` when the bot leaves it. */
 const LIVE_STATUSES = new Set(["pending", "active", "paused"]);
+/** 7.1 / P38: how long after a number change a re-added group returns without re-approval. */
+export const READMIT_WITHIN_MS = 30 * 24 * 60 * 60_000;
 
 export function createGroupDirectory(options: {
   store: GroupStore;
@@ -73,11 +75,20 @@ export function createGroupDirectory(options: {
         group = { ...group, name };
       }
       if (group.status === "removed") {
-        // Re-added after being removed: needs approval again.
-        await store.setStatus(group.id, "pending");
-        group = { ...group, status: "pending" };
-        log.info({ jid }, "bot re-added to a removed group; back to pending");
-        await record("group_readded", group);
+        // After a number change (7.1): back to the status it had, without re-approval.
+        const relink = await store.relinkStatus(group.id);
+        if (relink && now() - relink.at.getTime() <= READMIT_WITHIN_MS) {
+          await store.readmit(group.id, relink.status);
+          group = { ...group, status: relink.status };
+          log.info({ jid, status: relink.status }, "new number added to the group; readmitted");
+          await record("group_readmitted", group, { status: relink.status });
+        } else {
+          // Re-added after being removed for any other reason: needs approval again.
+          await store.setStatus(group.id, "pending");
+          group = { ...group, status: "pending" };
+          log.info({ jid }, "bot re-added to a removed group; back to pending");
+          await record("group_readded", group);
+        }
       }
       return remember(group);
     },

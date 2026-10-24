@@ -14,6 +14,8 @@ export type PairingWatcherOptions = {
   codeTtlMs?: number;
   /** How often to check whether the dashboard cancelled an open request. */
   cancelCheckMs?: number;
+  /** Called before a relink logs the old number out (7.1: groups record their status). */
+  onRelink?: () => Promise<void>;
 };
 
 export type PairingWatcher = {
@@ -62,7 +64,13 @@ export function createPairingWatcher(options: PairingWatcherOptions): PairingWat
     const log2 = log.child({ requestId: request.id, kind: request.kind });
     log2.info("pairing request received");
     try {
-      if (request.kind === "relink") await connection.relink();
+      if (request.kind === "relink") {
+        // A failure here must not block the relink; groups then just need re-approval.
+        await options.onRelink?.().catch((error: unknown) => {
+          log2.error({ err: error }, "could not record group statuses before the relink");
+        });
+        await connection.relink();
+      }
       const code = await connection.pair(request.phoneE164);
       const expiresAt = new Date(Date.now() + codeTtlMs);
       await store.markCodeIssued(request.id, code, expiresAt);

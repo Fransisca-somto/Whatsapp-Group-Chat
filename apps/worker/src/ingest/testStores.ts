@@ -11,6 +11,8 @@ import type { MessageStore, NewGroupMessage } from "../db/messagesRepo.ts";
 export function memoryGroups(initial: Omit<GroupRecord, "id">[] = []) {
   let next = 1;
   const rows = initial.map((g) => ({ ...g, id: `g${next++}` }));
+  /** 7.1: status recorded at the last number change, by group id. */
+  const relink = new Map<string, { status: GroupStatus; at: Date }>();
   const touchActivity = vi.fn(() => Promise.resolve());
   const copy = (row: GroupRecord | undefined) => (row ? { ...row } : null);
   const findByJid = vi.fn((jid: string) => Promise.resolve(copy(rows.find((r) => r.jid === jid))));
@@ -33,6 +35,18 @@ export function memoryGroups(initial: Omit<GroupRecord, "id">[] = []) {
       return Promise.resolve();
     },
     touchActivity,
+    markForRelink: (at) => {
+      const live = rows.filter((r) => r.status === "active" || r.status === "paused");
+      for (const r of live) relink.set(r.id, { status: r.status, at });
+      return Promise.resolve(live.length);
+    },
+    relinkStatus: (id) => Promise.resolve(relink.get(id) ?? null),
+    readmit: (id, status) => {
+      const row = rows.find((r) => r.id === id);
+      if (row) row.status = status;
+      relink.delete(id);
+      return Promise.resolve();
+    },
     assistantSettings: () =>
       Promise.resolve({
         aiEnabled: true,
@@ -42,7 +56,7 @@ export function memoryGroups(initial: Omit<GroupRecord, "id">[] = []) {
         reminderPermission: "admins_only",
       }),
   };
-  return { rows, store, touchActivity, findByJid };
+  return { rows, store, touchActivity, findByJid, relink };
 }
 
 export function memoryMessages() {
