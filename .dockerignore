@@ -1,0 +1,16 @@
+# Keep the worker image small and free of secrets (apps/worker/Dockerfile builds from the root).
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+.git
+.github
+.next
+**/.next
+**/coverage
+**/*.log
+# The dashboard isn't built here; only its package.json is kept so the lockfile still matches.
+apps/dashboard/*
+!apps/dashboard/package.json
+supabase
+Workflow
