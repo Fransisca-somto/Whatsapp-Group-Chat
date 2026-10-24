@@ -38,6 +38,7 @@ import { createLogger, type Logger } from "./logger.ts";
 import { bundledFfmpegPath, createVoiceConverter } from "./media/convertVoice.ts";
 import { createPairingWatcher, type PairingWatcher } from "./pairing/pairingWatcher.ts";
 import { createReminderFlow } from "./reminders/reminderFlow.ts";
+import { createAttachmentCleanup, type AttachmentCleanup } from "./scheduler/attachmentCleanup.ts";
 import { createScheduler, type Scheduler } from "./scheduler/scheduler.ts";
 import { createSupabaseAuthState } from "./whatsapp/authState.ts";
 import {
@@ -165,12 +166,14 @@ function main() {
     let heartbeat: Heartbeat | undefined;
     let indexing: EmbeddingJob | undefined;
     let scheduler: Scheduler | undefined;
+    let cleanup: AttachmentCleanup | undefined;
 
     const stopAll = async () => {
       // Lock lost: never write session state again from this instance.
       if (!lock.isHeld()) auth.discardPending();
       // Before the send queue stops, so a post in flight is finished or put back, never lost.
       await scheduler?.stop();
+      await cleanup?.stop();
       sendQueue?.stop();
       sendQueue = null;
       currentSocket = null;
@@ -256,6 +259,7 @@ function main() {
         },
         logger,
       });
+      cleanup = createAttachmentCleanup({ store: attachmentsStore, audit: auditRepo, logger });
       indexing = createEmbeddingJob({
         store: createEmbeddingsRepo(db),
         settings: aiSettings,
@@ -273,6 +277,7 @@ function main() {
       indexing.start();
       await scheduler.start();
       checkpoint();
+      cleanup.start();
       return stopAll;
     } catch (error) {
       // Never leave a half-started session (above all, an open socket) behind.
