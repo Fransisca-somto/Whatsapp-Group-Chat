@@ -778,6 +778,7 @@ export type Database = {
           created_by_phone_e164: string | null
           created_by_user_id: string | null
           created_via: string
+          dismissed_at: string | null
           due_at: string
           group_id: string
           id: string
@@ -799,13 +800,13 @@ export type Database = {
         }
       }
       clear_openrouter_key: { Args: never; Returns: undefined }
-      confirm_reminder_request: {
-        Args: { p_request_id: string; p_requester_jid: string }
-        Returns: string
-      }
       configure_alert_email: {
         Args: { p_api_key: string; p_from: string; p_recipients: string[] }
         Returns: undefined
+      }
+      confirm_reminder_request: {
+        Args: { p_request_id: string; p_requester_jid: string }
+        Returns: string
       }
       current_dashboard_role: { Args: never; Returns: string }
       get_openrouter_key: { Args: never; Returns: string }
