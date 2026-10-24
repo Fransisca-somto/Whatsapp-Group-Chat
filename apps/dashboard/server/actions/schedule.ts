@@ -5,12 +5,14 @@
 // cancel, resend or dismiss rows. Every change is conditional on the post's status, so a post
 // the worker has already claimed can never be edited or cancelled under it.
 import {
+  ATTACHMENT_BUCKET,
   ATTENTION_STATUSES,
   repeatRuleToRrule,
   resolveDueAt,
   scheduledPostIdInputSchema,
   scheduledPostInputSchema,
   updateScheduledPostInputSchema,
+  type Attachment,
   type ScheduledPostInput,
 } from "@soft-agent-support/shared";
 import { revalidatePath } from "next/cache";
@@ -50,6 +52,29 @@ function firstIssue(error: { issues: { message: string }[] }, fallback: string):
 }
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+/** The attachment columns for a post (all null without one). */
+function attachmentColumns(attachment: Attachment | null) {
+  return {
+    attachment_path: attachment?.path ?? null,
+    attachment_kind: attachment?.kind ?? null,
+    attachment_mime: attachment?.mime ?? null,
+    attachment_name: attachment?.name ?? null,
+    attachment_size: attachment?.size ?? null,
+    attachment_seconds: attachment?.seconds ?? null,
+  };
+}
+
+/** Deletes a replaced or removed file if no other post (a series, a resend) still uses it. */
+async function deleteIfUnused(supabase: Supabase, path: string) {
+  const { count, error } = await supabase
+    .from("scheduled_posts")
+    .select("id", { count: "exact", head: true })
+    .eq("attachment_path", path);
+  if (error || (count ?? 0) > 0) return;
+  const { error: removeError } = await supabase.storage.from(ATTACHMENT_BUCKET).remove([path]);
+  if (removeError) console.error("schedule: could not delete a replaced attachment", removeError);
+}
 
 /** Checks the group can take posts and works out the UTC time; an error message otherwise. */
 async function prepare(
@@ -100,6 +125,7 @@ export async function createScheduledPost(input: unknown): Promise<ActionResult<
       recurrence_rule: prepared.rrule,
       created_via: "dashboard",
       created_by_user_id: user.userId,
+      ...attachmentColumns(post.attachment),
     })
     .select("id")
     .single();
@@ -118,6 +144,7 @@ export async function createScheduledPost(input: unknown): Promise<ActionResult<
       dueAt: prepared.dueAt,
       repeat: prepared.rrule,
       characters: post.body.length,
+      attachment: post.attachment?.kind ?? null,
     },
   });
   refresh(post.groupId);
@@ -135,6 +162,11 @@ export async function updateScheduledPost(input: unknown): Promise<ActionResult>
   const supabase = await createClient();
   const prepared = await prepare(supabase, post);
   if (!prepared.ok) return prepared;
+  const { data: before } = await supabase
+    .from("scheduled_posts")
+    .select("attachment_path")
+    .eq("id", id)
+    .maybeSingle();
 
   const { data, error } = await supabase
     .from("scheduled_posts")
@@ -144,6 +176,7 @@ export async function updateScheduledPost(input: unknown): Promise<ActionResult>
       body: post.body,
       due_at: prepared.dueAt,
       recurrence_rule: prepared.rrule,
+      ...attachmentColumns(post.attachment),
     })
     .eq("id", id)
     .eq("status", "scheduled")
@@ -155,6 +188,8 @@ export async function updateScheduledPost(input: unknown): Promise<ActionResult>
   if (data.length === 0) {
     return { ok: false, error: "This post is being sent or has already gone out." };
   }
+  const oldPath = before?.attachment_path;
+  if (oldPath && oldPath !== post.attachment?.path) await deleteIfUnused(supabase, oldPath);
 
   await audit({
     userId: user.userId,

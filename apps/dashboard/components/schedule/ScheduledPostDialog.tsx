@@ -7,13 +7,14 @@ import {
   resolveDueAt,
   SCHEDULED_POST_BODY_MAX,
   scheduledPostInputSchema,
+  type Attachment,
   type RepeatRule,
   type ScheduledPostKind,
   type Weekday,
 } from "@soft-agent-support/shared";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useId, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { DateTimePicker } from "@/components/DateTimePicker";
@@ -29,6 +30,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { discardUpload } from "@/lib/attachmentUpload";
 import {
   KIND_LABELS,
   formValuesFromPost,
@@ -37,6 +39,8 @@ import {
 } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 import { createScheduledPost, updateScheduledPost } from "@/server/actions/schedule";
+
+import { AttachmentPicker } from "./AttachmentPicker";
 
 type Props = {
   groups: SchedulableGroup[];
@@ -109,6 +113,7 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
         body: "",
         dueAtLocal: nextHourLocal(timeZone),
         repeat: null,
+        attachment: null as Attachment | null,
       };
   const start = calendarOf(initial.dueAtLocal);
 
@@ -123,8 +128,35 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
   const [monthDay, setMonthDay] = useState<number | "last">(
     initial.repeat?.kind === "monthly" ? initial.repeat.day : start.day <= 28 ? start.day : "last",
   );
+  const [attachment, setAttachment] = useState<Attachment | null>(initial.attachment);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Files uploaded in this form and not saved yet: removed again if the form closes unsaved.
+  const unsaved = useRef(new Set<string>());
+  const saved = useRef(false);
+  useEffect(
+    () => () => {
+      if (!saved.current) for (const path of unsaved.current) void discardUpload(path);
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    },
+    [previewUrl],
+  );
+
+  const dropAttachment = () => {
+    if (attachment && unsaved.current.has(attachment.path)) {
+      unsaved.current.delete(attachment.path);
+      void discardUpload(attachment.path);
+    }
+    setAttachment(null);
+    setPreviewUrl(null);
+  };
+  const isAudio = attachment?.kind === "audio" || attachment?.kind === "voice";
 
   const repeat: RepeatRule | null =
     repeatChoice === "none"
@@ -152,7 +184,14 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
     );
 
   const save = () => {
-    const parsed = scheduledPostInputSchema.safeParse({ groupId, kind, body, dueAtLocal, repeat });
+    const parsed = scheduledPostInputSchema.safeParse({
+      groupId,
+      kind,
+      body,
+      dueAtLocal,
+      repeat,
+      attachment,
+    });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Check the post.");
       return;
@@ -167,6 +206,7 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
         ? await updateScheduledPost({ ...parsed.data, id: post.id })
         : await createScheduledPost(parsed.data);
       if (result.ok) {
+        saved.current = true;
         toast.success(post ? "Post updated." : "Post scheduled.");
         onOpenChange(false);
         router.refresh();
@@ -228,7 +268,10 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
       </fieldset>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor={`${formId}-body`}>Message</Label>
+        <Label htmlFor={`${formId}-body`}>
+          Message
+          {attachment && <span className="font-normal text-muted-foreground"> (optional)</span>}
+        </Label>
         <Textarea
           id={`${formId}-body`}
           rows={4}
@@ -245,6 +288,22 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
           {body.trim().length.toLocaleString("en")} / {SCHEDULED_POST_BODY_MAX.toLocaleString("en")}{" "}
           characters
         </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium">Attachment</span>
+        <AttachmentPicker
+          value={attachment}
+          previewUrl={previewUrl}
+          disabled={pending}
+          onUploaded={(uploaded, url) => {
+            dropAttachment();
+            unsaved.current.add(uploaded.path);
+            setAttachment(uploaded);
+            setPreviewUrl(url);
+          }}
+          onRemove={dropAttachment}
+        />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -326,10 +385,29 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
         aria-live="polite"
       >
         <p className="text-xs font-medium text-muted-foreground">What the group will see</p>
-        <p className="whitespace-pre-wrap">
-          {kind === "reminder" && <strong>Reminder: </strong>}
-          {body.trim() || <span className="text-muted-foreground">Your message</span>}
-        </p>
+        {attachment && (
+          <p className="text-xs text-muted-foreground">
+            {attachment.kind === "voice"
+              ? "A voice note"
+              : attachment.kind === "audio"
+                ? "An audio message"
+                : `${attachment.kind === "document" ? "The document" : `The ${attachment.kind}`}`}
+            {isAudio
+              ? body.trim() || kind === "reminder"
+                ? ", then this text as a second message:"
+                : ""
+              : body.trim() || kind === "reminder"
+                ? ", with this text:"
+                : ""}
+          </p>
+        )}
+        {(body.trim() || kind === "reminder" || !attachment) && (
+          <p className="whitespace-pre-wrap">
+            {kind === "reminder" && <strong>{body.trim() ? "Reminder: " : "Reminder"}</strong>}
+            {body.trim() ||
+              (!attachment && <span className="text-muted-foreground">Your message</span>)}
+          </p>
+        )}
         {due?.ok && (
           <p className="text-xs text-muted-foreground">
             {repeat ? "First post " : "Posts "}

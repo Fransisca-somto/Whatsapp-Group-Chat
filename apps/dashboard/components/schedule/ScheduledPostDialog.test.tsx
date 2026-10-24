@@ -62,6 +62,7 @@ describe("ScheduledPostDialog", () => {
         body: "Submit the weekly report",
         dueAtLocal: due,
         repeat: null,
+        attachment: null,
       }),
     );
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
@@ -102,6 +103,13 @@ describe("ScheduledPostDialog", () => {
           dismissed_at: null,
           created_via: "dashboard",
           created_by_phone_e164: null,
+          attachment_path: null,
+          attachment_kind: null,
+          attachment_mime: null,
+          attachment_name: null,
+          attachment_size: null,
+          attachment_seconds: null,
+          attachment_deleted_at: null,
           groups: { name: "Sales" },
         }}
         open
