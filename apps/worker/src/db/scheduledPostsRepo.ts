@@ -1,15 +1,31 @@
 // scheduled_posts for the scheduler (data-models.md §3.9, api-interfaces.md §8.1, ADR-034).
 // Every change after a claim matches the claim token and `sending`, so a post can only be
 // finished by the tick that claimed it.
-import type { ScheduledPostKind, TablesUpdate } from "@soft-agent-support/shared";
+import {
+  attachmentKindSchema,
+  type AttachmentKind,
+  type ScheduledPostKind,
+  type TablesUpdate,
+} from "@soft-agent-support/shared";
 
 import type { ServiceClient } from "./supabase.ts";
 
 type PostUpdate = TablesUpdate<"scheduled_posts">;
 
 const UNIQUE_VIOLATION = "23505";
+// One literal, so supabase-js can type the rows it returns.
 const POST_COLUMNS =
-  "id, group_id, kind, body, due_at, recurrence_rule, parent_post_id, created_by_user_id";
+  "id, group_id, kind, body, due_at, recurrence_rule, parent_post_id, created_by_user_id, attachment_path, attachment_kind, attachment_mime, attachment_name, attachment_size, attachment_seconds, attachment_deleted_at";
+
+/** One file or voice note to send with the post (Phase 6, 6.8). */
+export type PostAttachment = {
+  path: string;
+  kind: AttachmentKind;
+  mime: string;
+  name: string;
+  size: number;
+  seconds: number | null;
+};
 
 export type ScheduledPost = {
   id: string;
@@ -20,6 +36,7 @@ export type ScheduledPost = {
   recurrenceRule: string | null;
   parentPostId: string | null;
   createdByUserId: string | null;
+  attachment: PostAttachment | null;
 };
 
 export type ScheduledPostStore = {
@@ -36,6 +53,8 @@ export type ScheduledPostStore = {
   markUncertain(id: string, token: string, reason: string): Promise<void>;
   /** Nothing reached WhatsApp: back to `scheduled` for the next tick. */
   release(id: string, token: string): Promise<void>;
+  /** P33: the audio went out but its text did not; the post stays sent. */
+  noteTextNotSent(id: string): Promise<void>;
   /** The next post of a series; false if the series already has one waiting. */
   insertNext(post: ScheduledPost, dueAt: Date): Promise<boolean>;
 };
@@ -49,7 +68,27 @@ type Row = {
   recurrence_rule: string | null;
   parent_post_id: string | null;
   created_by_user_id: string | null;
+  attachment_path: string | null;
+  attachment_kind: string | null;
+  attachment_mime: string | null;
+  attachment_name: string | null;
+  attachment_size: number | null;
+  attachment_seconds: number | null;
+  attachment_deleted_at: string | null;
 };
+
+function toAttachment(row: Row): PostAttachment | null {
+  const kind = attachmentKindSchema.safeParse(row.attachment_kind);
+  if (!row.attachment_path || !kind.success) return null;
+  return {
+    path: row.attachment_path,
+    kind: kind.data,
+    mime: row.attachment_mime ?? "application/octet-stream",
+    name: row.attachment_name ?? "file",
+    size: row.attachment_size ?? 0,
+    seconds: row.attachment_seconds,
+  };
+}
 
 function toPost(row: Row): ScheduledPost {
   return {
@@ -61,6 +100,8 @@ function toPost(row: Row): ScheduledPost {
     recurrenceRule: row.recurrence_rule,
     parentPostId: row.parent_post_id,
     createdByUserId: row.created_by_user_id,
+    // A file the cleanup removed can't be sent: the post goes out as text only.
+    attachment: row.attachment_deleted_at ? null : toAttachment(row),
   };
 }
 
@@ -138,6 +179,15 @@ export function createScheduledPostsRepo(db: ServiceClient): ScheduledPostStore 
     markUncertain: (id, token, reason) =>
       finish(id, token, { status: "delivery_uncertain", last_error: reason }),
 
+    async noteTextNotSent(id) {
+      const { error } = await db
+        .from("scheduled_posts")
+        .update({ last_error: "text not sent" })
+        .eq("id", id)
+        .eq("status", "sent");
+      if (error) throw new Error(`scheduled_posts update failed: ${error.message}`);
+    },
+
     release: (id, token) =>
       finish(id, token, { status: "scheduled", claim_token: null, claimed_at: null }),
 
@@ -151,6 +201,13 @@ export function createScheduledPostsRepo(db: ServiceClient): ScheduledPostStore 
         parent_post_id: post.parentPostId ?? post.id,
         created_via: "dashboard",
         created_by_user_id: post.createdByUserId,
+        // The series keeps its file (Phase 6, 6.8).
+        attachment_path: post.attachment?.path ?? null,
+        attachment_kind: post.attachment?.kind ?? null,
+        attachment_mime: post.attachment?.mime ?? null,
+        attachment_name: post.attachment?.name ?? null,
+        attachment_size: post.attachment?.size ?? null,
+        attachment_seconds: post.attachment?.seconds ?? null,
       });
       if (error?.code === UNIQUE_VIOLATION) return false;
       if (error) throw new Error(`scheduled_posts insert failed: ${error.message}`);

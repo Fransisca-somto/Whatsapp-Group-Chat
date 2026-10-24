@@ -10,6 +10,7 @@ import { createAssistant } from "./assistant/pipeline.ts";
 import { cachedAiSettings, createAiSettingsRepo } from "./db/aiSettingsRepo.ts";
 
 import { createAlertsRepo } from "./db/alertsRepo.ts";
+import { createAttachmentsStore } from "./db/attachmentsStore.ts";
 import { createAuditRepo } from "./db/auditRepo.ts";
 import { createAuthorizedUsersRepo } from "./db/authorizedUsersRepo.ts";
 import { createAuthStateRepo } from "./db/authStateRepo.ts";
@@ -34,6 +35,7 @@ import { createResendSender } from "./health/email.ts";
 import { createHeartbeat, type Heartbeat } from "./health/heartbeat.ts";
 import { botIdentity, createIngest } from "./ingest/ingest.ts";
 import { createLogger, type Logger } from "./logger.ts";
+import { bundledFfmpegPath, createVoiceConverter } from "./media/convertVoice.ts";
 import { createPairingWatcher, type PairingWatcher } from "./pairing/pairingWatcher.ts";
 import { createReminderFlow } from "./reminders/reminderFlow.ts";
 import { createScheduler, type Scheduler } from "./scheduler/scheduler.ts";
@@ -102,6 +104,12 @@ function main() {
   // Settings page changes apply within 60 s (api-interfaces.md §2.3).
   const aiSettings = cachedAiSettings(createAiSettingsRepo(db));
   const embeddings = createEmbeddingsClient();
+  const attachmentsStore = createAttachmentsStore(db);
+  const ffmpegPath = bundledFfmpegPath();
+  if (!ffmpegPath) {
+    logger.warn("ffmpeg-static is not installed: voice notes will wait until it is (pnpm install)");
+  }
+  const convertVoice = createVoiceConverter({ ffmpegPath });
   const reminders = createReminderFlow({
     requests: createReminderRequestsRepo(db),
     authorizedUsers: createAuthorizedUsersRepo(db),
@@ -227,7 +235,9 @@ function main() {
         settings: aiSettings,
         audit: auditRepo,
         expireReminderRequests: () => reminders.expireOverdue(),
-        recordBotMessage: async (groupId, waMessageId, text) => {
+        attachments: attachmentsStore,
+        convertVoice,
+        recordBotMessage: async (groupId, waMessageId, text, type) => {
           const bot = currentSocket ? botIdentity(currentSocket) : { jid: null, lid: null };
           await messagesRepo.insertIfNew({
             groupId,
@@ -236,7 +246,7 @@ function main() {
             senderPhoneE164: phoneFromJid(bot.jid),
             senderName: null,
             isFromBot: true,
-            type: "text",
+            type,
             body: text,
             quotedWaMessageId: null,
             mentionsBot: false,
