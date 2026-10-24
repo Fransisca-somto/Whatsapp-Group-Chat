@@ -70,7 +70,7 @@ Before the bot can answer anywhere, the owner saves the company's OpenRouter key
 
 ### 4.4 Unprompted posts (scheduler)
 1. Every 30 seconds the worker checks for due announcements and reminders.
-2. It posts them to the correct group.
+2. It posts them to the correct group. A dashboard post may carry **one attachment** that an admin uploaded (photo, video, audio file or document, up to 16 MB) or **a voice note recorded in the dashboard**; photos, videos and documents carry the text as caption, while audio and voice notes are followed by the text as a second message. (Owner decision, 2026-10-24, ADR-036.)
 3. If the worker was down when something was due: items up to **2 hours** late are sent with a short "(sent late)" note; older ones are marked **skipped** and shown in the dashboard. `[DEFAULT]`
 4. Nothing is ever sent twice. If delivery is uncertain after a crash, the item is flagged **delivery uncertain** in the dashboard with a Resend button rather than resent automatically.
 
@@ -79,7 +79,7 @@ Before the bot can answer anywhere, the owner saves the company's OpenRouter key
 - Manage the authorized-user list (name + phone number, all groups or specific groups).
 - Train each group: add, edit, turn off or delete entries; upload `.txt` / `.md` files; copy training from another group; set optional bot instructions.
 - Settings (owner): company name, bot name, timezone, OpenRouter key and models.
-- Create, view, edit, cancel announcements and reminders, including **recurring** reminders.
+- Create, view, edit, cancel announcements and reminders, including **recurring** reminders, optionally with one uploaded file or a recorded voice note.
 - See worker status (connected, offline, logged out, pairing) and last heartbeat.
 - Link and relink the number.
 - View the audit log of bot actions.
@@ -129,6 +129,8 @@ Agents must not build any of the following, even partially:
 - Multiple companies / multi-tenancy.
 - Multiple linked numbers at the same time.
 - Media understanding (images, voice notes, documents). These are stored as metadata only. `[DEFAULT]`
+- The AI creating, editing or choosing images, audio or files. Attachments are only what a person uploads or records (owner decision, 2026-10-24).
+- Live audio streams or calls in groups (not possible for a WhatsApp bot); attachments on reminders set by tagging the bot; more than one attachment per post.
 - The bot joining groups by invite link on its own, or creating groups.
 - Customer-facing groups until the "Customer mode" gate in `progress.md` is passed.
 - Automatic resending of messages whose delivery is uncertain.

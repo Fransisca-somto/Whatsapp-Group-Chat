@@ -4,11 +4,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Call = { table: string; steps: [string, unknown[]][] };
 
 let calls: Call[] = [];
+let removed: string[][] = [];
 let results: Record<string, unknown> = {};
 
 /** A chainable stand-in for supabase-js; `results[table:op]` decides what each query returns. */
 function fakeClient() {
   return {
+    storage: {
+      from: () => ({
+        remove: (paths: string[]) => {
+          removed.push(paths);
+          return Promise.resolve({ error: null });
+        },
+      }),
+    },
     from(table: string) {
       const call: Call = { table, steps: [] };
       calls.push(call);
@@ -73,6 +82,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   calls = [];
+  removed = [];
   access.current = { kind: "allowed", userId: "u1", role: "staff" };
   auditDashboardAction.mockClear();
   results = {
@@ -107,6 +117,12 @@ describe("createScheduledPost", () => {
         recurrence_rule: null,
         created_via: "dashboard",
         created_by_user_id: "u1",
+        attachment_path: null,
+        attachment_kind: null,
+        attachment_mime: null,
+        attachment_name: null,
+        attachment_size: null,
+        attachment_seconds: null,
       },
     ]);
     expect(auditDashboardAction).toHaveBeenCalledWith(
@@ -193,5 +209,60 @@ describe("changing posts only while they are waiting", () => {
     expect(await dismissScheduledPost({ id: POST_ID })).toEqual({ ok: true, data: undefined });
     expect(argOf("scheduled_posts", "update")).toEqual([{ dismissed_at: NOW.toISOString() }]);
     expect(stepsOf("scheduled_posts", "update")).toContainEqual(["is", ["dismissed_at", null]]);
+  });
+});
+
+describe("attachments (6.7)", () => {
+  const PHOTO = {
+    path: "3f0c2a1b-4d5e-4f60-8a7b-9c0d1e2f3a4b/poster.png",
+    kind: "image",
+    mime: "image/png",
+    name: "poster.png",
+    size: 2_000,
+    seconds: null,
+  };
+
+  it("saves a post with only an attachment", async () => {
+    expect(await createScheduledPost({ ...input, body: "", attachment: PHOTO })).toMatchObject({
+      ok: true,
+    });
+    expect(argOf("scheduled_posts", "insert")).toEqual([
+      expect.objectContaining({
+        body: "",
+        attachment_path: PHOTO.path,
+        attachment_kind: "image",
+        attachment_mime: "image/png",
+        attachment_name: "poster.png",
+        attachment_size: 2_000,
+        attachment_seconds: null,
+      }),
+    ]);
+  });
+
+  it("still needs text when there is no attachment", async () => {
+    expect(await createScheduledPost({ ...input, body: "" })).toEqual({
+      ok: false,
+      error: "Write the message",
+    });
+  });
+
+  it("deletes a replaced file that nothing else uses", async () => {
+    results["scheduled_posts:select"] = {
+      data: { attachment_path: "old0c2a1-4d5e-4f60-8a7b-9c0d1e2f3a4b/old.png" },
+      error: null,
+      count: 0,
+    };
+    await updateScheduledPost({ ...input, id: POST_ID, attachment: PHOTO });
+    expect(removed).toEqual([["old0c2a1-4d5e-4f60-8a7b-9c0d1e2f3a4b/old.png"]]);
+  });
+
+  it("keeps a replaced file another post still uses", async () => {
+    results["scheduled_posts:select"] = {
+      data: { attachment_path: "old0c2a1-4d5e-4f60-8a7b-9c0d1e2f3a4b/old.png" },
+      error: null,
+      count: 1,
+    };
+    await updateScheduledPost({ ...input, id: POST_ID, attachment: PHOTO });
+    expect(removed).toEqual([]);
   });
 });

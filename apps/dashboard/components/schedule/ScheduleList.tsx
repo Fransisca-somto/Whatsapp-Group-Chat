@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import { Pencil, RotateCcw, X, XCircle } from "lucide-react";
+import { Mic, Paperclip, Pencil, RotateCcw, X, XCircle } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -13,7 +13,10 @@ import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge, type Status } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import {
+  attachmentFromPost,
+  attachmentLabel,
   attentionReason,
+  createdInGroupLabel,
   kindLabel,
   repeatLabel,
   type SchedulableGroup,
@@ -88,6 +91,8 @@ function PostRow({
   const [confirm, setConfirm] = useState<"cancel" | "resend" | null>(null);
   const [pending, startTransition] = useTransition();
   const repeat = repeatLabel(post, timeZone);
+  const setInGroup = createdInGroupLabel(post);
+  const attachment = attachmentFromPost(post);
   const reason = tab === "attention" ? attentionReason(post) : "";
   const editable = post.status === "scheduled";
   const status: Status =
@@ -128,7 +133,18 @@ function PostRow({
             </>
           )}
         </div>
-        <p className="line-clamp-3 text-sm whitespace-pre-wrap">{post.body}</p>
+        {post.body && <p className="line-clamp-3 text-sm whitespace-pre-wrap">{post.body}</p>}
+        {attachment && (
+          <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            {attachment.kind === "voice" ? (
+              <Mic aria-hidden="true" className="size-3.5" />
+            ) : (
+              <Paperclip aria-hidden="true" className="size-3.5" />
+            )}
+            {attachmentLabel(attachment)}
+            {post.attachment_deleted_at && " (file removed)"}
+          </p>
+        )}
         <p className="text-xs text-muted-foreground">
           {post.status === "sent" && post.sent_at ? "Sent " : "Due "}
           <DateTimeInCompanyTz
@@ -136,6 +152,7 @@ function PostRow({
             timeZone={timeZone}
           />
           {repeat && ` · ${repeat}`}
+          {setInGroup && ` · ${setInGroup}`}
         </p>
         {reason && <p className="text-xs text-status-warn">{reason}</p>}
       </div>

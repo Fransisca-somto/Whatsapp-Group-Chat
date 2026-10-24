@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 6 — Tag-to-Create Reminders, not started (Phase 0–3, 5 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | Merge `phase-5` into `main`; then plan Phase 6 |
+| **Current phase** | Phase 6 — Tag-to-Create Reminders (Phase 0–3, 5 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
+| **Current task** | 6.1–6.10 built on `phase-6`. Next: owner applies migration 0014, restarts the worker and runs the reminder and attachment live tests |
 | **Blockers** | None |
-| **Last updated** | 2026-10-23 (Phase 5 complete) |
+| **Last updated** | 2026-10-24 (Phase 6 attachments and voice notes built, migration 0014) |
 
 ---
 
@@ -75,12 +75,18 @@ Plan: `Workflow/Phases/07-Scheduler.md` (owner-approved 2026-10-23, P14–P20; s
 - ✅ 5.5 "Needs attention" tab with Resend for uncertain items. Live test passed 2026-10-23.
 - **Exit criteria:** posts arrive within 30 s of due time; crash-and-restart never produces a duplicate.
 
-### Phase 6 — Tag-to-Create Reminders ⬜
-- ⬜ 6.1 Authorized users page (name, phone, scope).
-- ⬜ 6.2 Per-group permission toggle enforcement (admins only / any member).
-- ⬜ 6.3 Reminder parsing in company timezone; code validation.
-- ⬜ 6.4 Confirmation state machine (requester only, yes/no, 2-minute expiry, one pending per user per group).
-- ⬜ 6.5 Polite refusals for unauthorized users and dashboard-only requests (edit, cancel, recurring).
+### Phase 6 — Tag-to-Create Reminders 🟦
+Plan: `Workflow/Phases/08-Tag-Reminders.md` (owner-approved 2026-10-23, P21–P26).
+- 🟦 6.1 Authorized users page (name, phone, scope). Built; awaiting the live test.
+- 🟦 6.2 Per-group permission toggle enforcement (admins only / any member). Built; awaiting the live test.
+- 🟦 6.3 Reminder parsing in company timezone; code validation. Built; awaiting the live test.
+- 🟦 6.4 Confirmation state machine (requester only, yes/no, 2-minute expiry, one pending per user per group). Built; awaiting migration 0013 and the live test.
+- 🟦 6.5 Polite refusals for unauthorized users and dashboard-only requests (edit, cancel, recurring). Built; awaiting the live test.
+- 🟦 6.6 Attachments: storage bucket, policies and post columns (migration 0014). Plan: `Workflow/Phases/09-Post-Attachments.md` (owner-approved 2026-10-24, P27–P34). Built; awaiting migration 0014.
+- 🟦 6.7 Dashboard: attach a file or record a voice note on a post. Built; awaiting the live test.
+- 🟦 6.8 Worker: send attachments (caption on photo / video / document; audio and voice notes then the text). Built; awaiting the live test.
+- 🟦 6.9 Daily cleanup of unused attachments. Built; awaiting the live test.
+- 🟦 6.10 Scope change and docs. Done (scope approved by the owner with the plan).
 - **Exit criteria:** authorized user creates a reminder end-to-end; others are refused; nothing saved without "yes"; expired requests leave no reminder.
 
 ### Phase 7 — Hardening ⬜
@@ -200,6 +206,12 @@ Decision: Repeats are limited to Daily, Weekdays, Weekly on chosen days, and Mon
 **ADR-034 — Scheduler failures follow what WhatsApp saw · 2026-10-23 · Accepted (owner decision P17; amends the scheduled_posts state machine, keeps ADR-011)**
 Decision: The scheduler claims only while WhatsApp is open. A post that never reached WhatsApp (not connected, worker stopping) goes back to `scheduled`; one WhatsApp rejected is `failed`; one without confirmation within 15 s, or left `sending` by a stopped session, is `delivery_uncertain`. Nothing is resent automatically; Needs attention offers Resend (as a one-off due now) and Dismiss (`dismissed_at`, migration 0012). Posts of paused or removed groups wait and are skipped if more than 2 h late when the group is active again. Consequences: a short disconnect never fails a post and never risks a duplicate; uncertain posts need a person to check the group.
 
+**ADR-035 — Confirming tag-created reminders · 2026-10-23 · Accepted (owner decisions P21–P24, P26)**
+Decision: A "yes"/"no" counts only when it is the whole message (fixed word lists; @mentions, spaces and surrounding punctuation ignored), from the requester, in the same group, within 2 minutes; it works untagged, as a reply, or as a tag, and is checked before the AI. Confirming is one database step (`confirm_reminder_request()`, migration 0013) that creates the reminder and marks the request, so a double "yes" or a late one never creates a second or stale reminder. A yes/no up to 10 minutes after expiry gets "That request has expired, so nothing was set" (replaces the silent-expiry default for that case; expiry itself still sends nothing). Reminders must be 3 minutes to 1 year ahead. Reminders set in a group show who set them on the dashboard. Consequences: no AI cost for confirmations; "yes please" is not a confirmation; in admins-only groups, people whose number WhatsApp hides cannot set reminders (they are told why).
+
+**ADR-036 — Attachments and voice notes on dashboard posts · 2026-10-24 · Accepted (owner decisions P27–P34; scope addition)**
+Decision: A dashboard post may carry one attachment that a person uploaded (photo, video, audio, document; ≤ 16 MB) or a voice note recorded in the dashboard (≤ 5 minutes). Files live in a private Supabase Storage bucket; the browser uploads them directly with the user's session (storage policies: dashboard users only). The scheduler fetches the file before sending, so a missing file just delays the post; photos, videos and documents carry the text as caption, while audio and voice notes go first and the text follows as a second message (the post is sent once the audio is confirmed; a failed text is noted, never resent). Recordings are converted to WhatsApp's voice-note format with ffmpeg (`ffmpeg-static`, new worker dependency). WhatsApp gets 60 s to confirm media. Files are deleted daily once every post using them is cancelled or finished more than 30 days ago. The AI never creates, edits or chooses media; tag-created reminders stay text-only. Consequences: the worker install includes an ~80 MB ffmpeg binary downloaded from GitHub; storage use stays small with the cleanup; the at-most-once rules are unchanged.
+
 ---
 
 ## Open Defaults to Confirm
@@ -231,6 +243,39 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-24 — Claude (Phase 6 live-test fix: recorded voice note left out of a post)
+- Owner: a scheduled post went out without the recorded audio. Checked read-only: the post was saved with no attachment and the storage bucket was empty, so the recording never left the browser (it waited for "Use recording", and saving didn't warn). Migration 0014 is applied; the worker sent what was saved.
+- Fix (owner-approved plan): the recorder and picker report unfinished work to the dialog; saving with a finished but unattached recording uploads and attaches it first (nothing is saved if that upload fails); **Schedule post** is disabled while recording or uploading, with the reason; "Use recording" is now "Attach recording". Tests added (`ScheduledPostDialog.pending.test.tsx`, picker status test); dashboard tests, typecheck and lint pass.
+- Changed docs: `ui-context.md`, `progress.md`.
+
+### 2026-10-24 — Claude (Phase 6: attachments and voice notes, 6.6–6.10)
+- Owner asked for attachments (video, pictures, audio, documents) on reminders and announcements, uploaded from the app (the AI must not generate images), real audio and voice notes ("live audio" = recorded in the dashboard; live streams aren't possible for WhatsApp bots), kept inside Phase 6. Plan `Phases/09-Post-Attachments.md` approved with P27–P34; the scope change in `project-overview.md` was approved with it.
+- Done: migration `0014_post_attachments.sql` (bucket, storage policies, attachment columns and checks, `attachments_due_for_cleanup()`); shared `attachments.ts` and the optional attachment on the post schema (text optional with one; "*Reminder*" for an empty reminder); dashboard `AttachmentPicker`, `VoiceRecorder`, `lib/attachmentUpload.ts`, dialog preview, list icons, server actions storing attachments and deleting replaced files; worker send queue media + 60 s wait, `media/convertVoice.ts` (ffmpeg), scheduler attachment sending (audio / voice then text, P33), `db/attachmentsStore.ts`, `scheduler/attachmentCleanup.ts` (daily); Audit log labels.
+- Install note: `ffmpeg-static` first failed to install (GitHub blocked on this network); a later `pnpm` run installed 5.3.0 successfully, and the real conversion tests pass (a browser WebM recording becomes Ogg/Opus). The worker loads ffmpeg at runtime and also treats a half-installed package (no binary) as missing.
+- Plan deviations, small: no upload progress bar (supabase-js gives none), "Uploading…" instead; a file deleted by the cleanup is kept as history (`attachment_deleted_at`) rather than clearing the columns, so empty-text posts stay valid; removing an unused file when a post is cancelled happens in the next daily cleanup, not instantly.
+- Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, tests (shared 96, worker 262, dashboard 138), dashboard build: all pass.
+- **Needs the owner:** apply 0014 (`pnpm supabase db push`), regenerate types, restart the worker and dashboard, then the live tests in the plan's Verify section (photo, PDF, video, MP3, recorded voice note, oversized file, cancelled post's file). Phase 6 reminder live-test results (6.1–6.5) are still to be reported.
+- Changed docs: `project-overview.md` (owner-approved), `progress.md`, `data-models.md`, `api-interfaces.md`, `architecture.md`, `ui-context.md`.
+
+### 2026-10-24 — Claude (Phase 6 live-test fix: reminder requests treated as questions)
+- Owner's first live test: "set a deadline for monday morning" got the correct confirmation, but "set a deadline for today 9:23am" and "can you set a reminder for tomorrow" were classified as `question`, and the answer replied that the bot can't set reminders and to ignore the earlier confirmation.
+- Causes: the intent prompt said "when unsure, use question", didn't say a request worded as a question is still a reminder, and earlier assistant replies (the wrong denial) biased the next classification; a missing time could also fail the schema (`dueAtLocal` required) and fall back to `question`. The answer prompt still said "You can only answer" from before Phase 6.
+- Fix (owner-approved plan): intent prompt covers reminders and deadlines in any wording (a question about an existing deadline stays a question), always gives a best-guess time with `confidence: low` when unclear, and ignores earlier assistant replies; answer prompt never denies reminders or tells people to ignore a confirmation, and says how to set one. Tests added (`prompts.test.ts`); worker 246 tests, typecheck, lint, format pass.
+- Also: the owner applied migration 0013 and regenerated `database.types.ts`; the generated file added `dismissed_at` to `claim_due_posts`' return type, which the Phase 5 hand edit had missed (committed).
+- A network outage at 09:29–09:34 (all Supabase calls failing, WhatsApp 408/428) made the worker fence and recover as designed; one tag at 09:31 was not answered.
+- Next: owner re-runs the live test (today 9:23am → too soon; reminder for tomorrow → asks for the time; Monday morning → confirm with yes).
+- Changed docs: `api-interfaces.md` §5.1–5.2, `progress.md`.
+
+### 2026-10-23 — Claude (Phase 6 built: reminders by tag)
+- Task(s): 6.1–6.5 on branch `phase-6` (from `main` after PR #5). Plan approved with P21–P26 as written.
+- Done: `/authorized-users` (list, add / edit / turn off / remove, `<PhoneInput>`, server actions with group links and duplicate-number message, audited); shared `reminders.ts` (`replyWord`, `checkReminderDraft`, `reminderTimeInTz`, limits); worker `reminders/permission.ts`, `reminders/reminderFlow.ts`, `db/authorizedUsersRepo.ts`, `db/reminderRequestsRepo.ts`; pipeline `create_reminder` → flow, tagged yes/no checked before the AI gates, `assistant.handleReplyWord` for untagged yes/no (routed by ingest through the group queue); scheduler tick step 2 expiry; new templates (`remindersNotYet` removed); `groups.reminder_permission` read with the assistant settings; dashboard "Set in the group by …" (P26) and Audit log labels.
+- Migration `0013_tag_reminders.sql`: `confirm_reminder_request()` and the 500-character check. `database.types.ts` edited by hand (one function).
+- Plan deviations, small: 6.4 and 6.5 are one commit (the refusal replies live in the flow); `<PhoneInput>` is tested through the dialog tests; a confirmation that races with expiry also gets the "expired" reply (`reminder_late_reply`), so the bot never says "Done" without a saved reminder.
+- Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, tests (shared 87, worker 244, dashboard 126), dashboard build: all pass.
+- Risk to check live: how often WhatsApp hides staff numbers (Supabase was unreachable from here, so not measured). In an admins-only group those people get the `noPhone` reply.
+- **Needs the owner:** apply 0013 (`pnpm supabase db push`), regenerate types, restart the worker, then the live test in the plan's Verify section.
+- Changed docs: `progress.md`, `data-models.md`, `api-interfaces.md`, `architecture.md`, `ui-context.md`, `Phases/08-Tag-Reminders.md`.
 
 ### 2026-10-23 — Claude (Phase 5 built: scheduler)
 - Task(s): 5.1–5.5 on branch `phase-5` (from `main` after PR #4). Plan approved with P14–P20 as written, and starting before Phase 4's retention check.

@@ -2,7 +2,7 @@ import { pino } from "pino";
 import { describe, expect, it, vi } from "vitest";
 
 import type { SocketLike } from "./connection.ts";
-import { createSendQueue, SendError } from "./sendQueue.ts";
+import { createSendQueue, messageContent, SendError } from "./sendQueue.ts";
 
 const logger = pino({ level: "silent" });
 const GROUP = "120363000000000001@g.us";
@@ -74,5 +74,48 @@ describe("send queue", () => {
     await expect(u.queue.enqueue({ groupJid: GROUP, text: "x" })).rejects.toMatchObject({
       reason: "stopped",
     });
+  });
+});
+
+describe("messageContent (6.8)", () => {
+  const data = Buffer.from("x");
+  const at = (media: Parameters<typeof messageContent>[0]["media"], text = "Caption") =>
+    messageContent({ groupJid: GROUP, text, media });
+
+  it("puts the text as caption on photos, videos and documents", () => {
+    expect(at({ kind: "image", data, mimetype: "image/png" })).toEqual({
+      image: data,
+      mimetype: "image/png",
+      caption: "Caption",
+    });
+    expect(at({ kind: "video", data, mimetype: "video/mp4" }, "")).toEqual({
+      video: data,
+      mimetype: "video/mp4",
+      caption: undefined,
+    });
+    expect(at({ kind: "document", data, mimetype: "application/pdf", fileName: "a.pdf" })).toEqual({
+      document: data,
+      mimetype: "application/pdf",
+      fileName: "a.pdf",
+      caption: "Caption",
+    });
+  });
+
+  it("sends audio as playable audio and a voice note as Ogg/Opus voice, never with a caption", () => {
+    expect(at({ kind: "audio", data, mimetype: "audio/mpeg" })).toEqual({
+      audio: data,
+      mimetype: "audio/mpeg",
+      ptt: false,
+    });
+    expect(at({ kind: "voice", data, seconds: 12 })).toEqual({
+      audio: data,
+      mimetype: "audio/ogg; codecs=opus",
+      ptt: true,
+      seconds: 12,
+    });
+  });
+
+  it("is plain text without media", () => {
+    expect(messageContent({ groupJid: GROUP, text: "Hello" })).toEqual({ text: "Hello" });
   });
 });

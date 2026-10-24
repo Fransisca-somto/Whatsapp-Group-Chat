@@ -1,11 +1,14 @@
 // One inbound group message (architecture.md §4, steps 1–3 for Phase 2):
 //   group gate (cached status; only active and paused groups are stored) → store once (dedupe on
 //   the WhatsApp message ID) → tag gate. Tagged messages are handed to onTagged (the assistant
-//   pipeline, assistant/pipeline.ts) with the raw message so the reply can quote it.
+//   pipeline, assistant/pipeline.ts) with the raw message so the reply can quote it. An untagged
+//   staff message that is only "yes"/"no" goes to onReplyWord (Phase 6: it may confirm the
+//   sender's reminder); all other chat is only stored.
 import type { WAMessage } from "baileys";
 
 import {
   inboundGroupMessageSchema,
+  replyWord,
   storesMessages,
   type InboundGroupMessage,
 } from "@soft-agent-support/shared";
@@ -35,6 +38,8 @@ export function createInboundHandler(deps: {
   /** Called for a message from a group the database does not know yet. */
   onUnknownGroup: (jid: string) => Promise<GroupRecord | null>;
   onTagged: TaggedHandler;
+  /** An untagged "yes"/"no" from staff (reminder confirmations). */
+  onReplyWord?: TaggedHandler;
   logger: Logger;
   now?: () => number;
 }): { handle(raw: WAMessage): Promise<void> } {
@@ -108,6 +113,8 @@ export function createInboundHandler(deps: {
 
       await touchActivity(group, message.sentAt);
       if (tagged) onTagged(message, group, raw);
+      else if (!message.isFromBot && replyWord(message.body))
+        deps.onReplyWord?.(message, group, raw);
     },
   };
 }

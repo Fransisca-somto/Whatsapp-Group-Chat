@@ -16,6 +16,7 @@ import type { AssistantSettings } from "../db/aiSettingsRepo.ts";
 import type { GroupAssistantSettings, GroupRecord } from "../db/groupsRepo.ts";
 import type { TrainingEntry } from "../db/knowledgeRepo.ts";
 import type { HistoryMatch, SearchQuery, SearchStore, TrainingMatch } from "../db/searchRepo.ts";
+import type { FlowReply, ReminderFlow } from "../reminders/reminderFlow.ts";
 import type { UsageEntry } from "../db/usageRepo.ts";
 import { memoryAudit, memoryMessages } from "../ingest/testStores.ts";
 import type { OutgoingMessage } from "../whatsapp/sendQueue.ts";
@@ -72,6 +73,8 @@ type Options = {
   historyMatches?: HistoryMatch[];
   trainingMatches?: TrainingMatch[];
   embedFails?: boolean;
+  /** What the reminder flow answers to a "yes"/"no" (null: not about a reminder). */
+  replyWordAnswer?: FlowReply | null;
 };
 
 function setup(options: Options = {}) {
@@ -81,6 +84,22 @@ function setup(options: Options = {}) {
   const sent: OutgoingMessage[] = [];
   const listActive = vi.fn(() => Promise.resolve(options.training ?? TRAINING));
   const requests: ChatRequest[] = [];
+  const onSent = vi.fn(() => Promise.resolve());
+  const reminders = {
+    handleRequest: vi.fn<ReminderFlow["handleRequest"]>(() =>
+      Promise.resolve({
+        text: "Reminder for Friday 23 Oct at 3:00 PM GMT+1: reports. Reply *yes* to confirm or *no* to cancel.",
+        status: "answered" as const,
+        action: "reminder_requested",
+        detail: { requestId: "r1" },
+        onSent,
+      }),
+    ),
+    handleReplyWord: vi.fn<ReminderFlow["handleReplyWord"]>(() =>
+      Promise.resolve(options.replyWordAnswer ?? null),
+    ),
+    expireOverdue: vi.fn(() => Promise.resolve()),
+  };
   const searches: { kind: "history" | "training"; groupId: string; query: SearchQuery }[] = [];
   const search: SearchStore = {
     searchHistory: (groupId, query) => {
@@ -120,6 +139,7 @@ function setup(options: Options = {}) {
           allowGeneralKnowledge: true,
           dailyReplyCap: 200,
           botInstructions: null,
+          reminderPermission: "admins_only",
           ...options.groupSettings,
         }),
     },
@@ -127,6 +147,7 @@ function setup(options: Options = {}) {
     knowledge: { listActive },
     search,
     embeddings: { embed },
+    reminders,
     usage: {
       record: (entry) => {
         usage.push(entry);
@@ -209,7 +230,22 @@ function setup(options: Options = {}) {
     };
   };
 
-  return { ask, sent, audit, usage, messages, requests, listActive, ai, searches, embed };
+  return {
+    ask,
+    sent,
+    audit,
+    usage,
+    messages,
+    requests,
+    listActive,
+    ai,
+    searches,
+    embed,
+    reminders,
+    onSent,
+    assistant,
+    group,
+  };
 }
 
 describe("assistant pipeline", () => {
@@ -301,17 +337,101 @@ describe("assistant pipeline", () => {
     expect(t.sent[0]?.text).toBe("8am.");
   });
 
-  it.each([
-    [
-      '{"intent":"create_reminder","reminder":{"body":"reports","dueAtLocal":"2026-10-23T15:00","confidence":"high"}}',
-      TEMPLATES.remindersNotYet,
-    ],
-    ['{"intent":"dashboard_only_action","action":"announcement"}', TEMPLATES.dashboardOnly],
-  ])("answers action requests with a fixed reply (%s)", async (intent, expected) => {
-    const t = setup({ intent });
-    const { row } = await t.ask("do something");
-    expect(t.sent[0]?.text).toBe(expected);
+  it("answers dashboard-only requests with a fixed reply", async () => {
+    const t = setup({ intent: '{"intent":"dashboard_only_action","action":"announcement"}' });
+    const { row } = await t.ask("post an announcement every Monday");
+    expect(t.sent[0]?.text).toBe(TEMPLATES.dashboardOnly);
     expect(row()?.handledStatus).toBe("refused");
+  });
+
+  describe("reminders (Phase 6)", () => {
+    const REMINDER =
+      '{"intent":"create_reminder","reminder":{"body":"reports","dueAtLocal":"2026-10-23T15:00","confidence":"high"}}';
+
+    it("hands a reminder request to the flow with the group's setting and sends its reply", async () => {
+      const t = setup({ intent: REMINDER, groupSettings: { reminderPermission: "any_member" } });
+      const { row } = await t.ask("@11112222 remind us at 3pm to send reports");
+      expect(t.reminders.handleRequest).toHaveBeenCalledWith({
+        groupId: "g1",
+        permission: "any_member",
+        senderJid: "99887766@lid",
+        senderPhoneE164: "+2348012345678",
+        sourceWaMessageId: "M1",
+        draft: { body: "reports", dueAtLocal: "2026-10-23T15:00", confidence: "high" },
+        timeZone: "Africa/Lagos",
+      });
+      expect(t.sent[0]?.text).toContain("Reply *yes* to confirm");
+      expect(t.onSent).toHaveBeenCalledWith("OUT1"); // the confirmation's ID is remembered
+      expect(row()?.handledStatus).toBe("answered");
+      expect(t.audit.entries.at(-1)).toMatchObject({ action: "reminder_requested" });
+    });
+
+    it("treats a tagged yes about a reminder as the answer, without the AI", async () => {
+      const t = setup({
+        replyWordAnswer: {
+          text: "Done. Reminder set for Friday 23 Oct at 3:00 PM GMT+1.",
+          status: "answered",
+          action: "reminder_confirmed",
+          detail: { requestId: "r1" },
+        },
+        settings: { apiKey: null }, // confirming needs no AI
+      });
+      await t.ask("@11112222 yes");
+      expect(t.reminders.handleReplyWord).toHaveBeenCalledWith({
+        groupId: "g1",
+        senderJid: "99887766@lid",
+        word: "yes",
+        timeZone: "Africa/Lagos",
+      });
+      expect(t.requests).toHaveLength(0);
+      expect(t.sent[0]?.text).toBe("Done. Reminder set for Friday 23 Oct at 3:00 PM GMT+1.");
+      expect(t.audit.entries.at(-1)).toMatchObject({ action: "reminder_confirmed" });
+    });
+
+    it("treats a tagged yes with no reminder as a normal message", async () => {
+      const t = setup({ intent: '{"intent":"smalltalk"}', answer: "Hi!" });
+      await t.ask("@11112222 yes");
+      expect(t.reminders.handleReplyWord).toHaveBeenCalled();
+      expect(t.requests.length).toBeGreaterThan(0);
+    });
+
+    it("answers an untagged yes only when it is about the sender's reminder", async () => {
+      const quiet = setup();
+      const message = {
+        waMessageId: "U1",
+        groupJid: GROUP.jid,
+        senderJid: "99887766@lid",
+        senderPhoneE164: null,
+        senderName: "Tunde",
+        type: "text" as const,
+        body: "Yes!",
+        quotedWaMessageId: null,
+        quotedParticipantJid: null,
+        mentionedJids: [],
+        sentAt: new Date(NOW - 1_000),
+        isFromBot: false,
+      };
+      const raw = { key: { id: "U1" } } as WAMessage;
+      await quiet.assistant.processReplyWord(message, quiet.group, raw);
+      expect(quiet.sent).toEqual([]);
+      expect(quiet.audit.entries).toEqual([]);
+
+      const t = setup({
+        replyWordAnswer: {
+          text: "Okay, cancelled.",
+          status: "answered",
+          action: "reminder_declined",
+          detail: { requestId: "r1" },
+        },
+      });
+      await t.assistant.processReplyWord({ ...message, body: "no" }, t.group, raw);
+      expect(t.sent).toEqual([{ groupJid: GROUP.jid, text: "Okay, cancelled.", quoted: raw }]);
+      expect(t.audit.entries.at(-1)).toMatchObject({
+        action: "reminder_declined",
+        actorType: "member",
+        sourceWaMessageId: "U1",
+      });
+    });
   });
 
   it("replies to greetings briefly", async () => {

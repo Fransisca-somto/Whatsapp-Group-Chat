@@ -10,7 +10,9 @@ import { createAssistant } from "./assistant/pipeline.ts";
 import { cachedAiSettings, createAiSettingsRepo } from "./db/aiSettingsRepo.ts";
 
 import { createAlertsRepo } from "./db/alertsRepo.ts";
+import { createAttachmentsStore } from "./db/attachmentsStore.ts";
 import { createAuditRepo } from "./db/auditRepo.ts";
+import { createAuthorizedUsersRepo } from "./db/authorizedUsersRepo.ts";
 import { createAuthStateRepo } from "./db/authStateRepo.ts";
 import { createConnectionRepo } from "./db/connectionRepo.ts";
 import { createEmbeddingsRepo } from "./db/embeddingsRepo.ts";
@@ -19,6 +21,7 @@ import { createKnowledgeRepo } from "./db/knowledgeRepo.ts";
 import { createLockRepo } from "./db/lockRepo.ts";
 import { createMessagesRepo } from "./db/messagesRepo.ts";
 import { createPairingRepo } from "./db/pairingRepo.ts";
+import { createReminderRequestsRepo } from "./db/reminderRequestsRepo.ts";
 import { createScheduledPostsRepo } from "./db/scheduledPostsRepo.ts";
 import { createSearchRepo } from "./db/searchRepo.ts";
 import { createServiceClient } from "./db/supabase.ts";
@@ -32,7 +35,10 @@ import { createResendSender } from "./health/email.ts";
 import { createHeartbeat, type Heartbeat } from "./health/heartbeat.ts";
 import { botIdentity, createIngest } from "./ingest/ingest.ts";
 import { createLogger, type Logger } from "./logger.ts";
+import { bundledFfmpegPath, createVoiceConverter } from "./media/convertVoice.ts";
 import { createPairingWatcher, type PairingWatcher } from "./pairing/pairingWatcher.ts";
+import { createReminderFlow } from "./reminders/reminderFlow.ts";
+import { createAttachmentCleanup, type AttachmentCleanup } from "./scheduler/attachmentCleanup.ts";
 import { createScheduler, type Scheduler } from "./scheduler/scheduler.ts";
 import { createSupabaseAuthState } from "./whatsapp/authState.ts";
 import {
@@ -99,6 +105,18 @@ function main() {
   // Settings page changes apply within 60 s (api-interfaces.md §2.3).
   const aiSettings = cachedAiSettings(createAiSettingsRepo(db));
   const embeddings = createEmbeddingsClient();
+  const attachmentsStore = createAttachmentsStore(db);
+  const ffmpegPath = bundledFfmpegPath();
+  if (!ffmpegPath) {
+    logger.warn("ffmpeg-static is not installed: voice notes will wait until it is (pnpm install)");
+  }
+  const convertVoice = createVoiceConverter({ ffmpegPath });
+  const reminders = createReminderFlow({
+    requests: createReminderRequestsRepo(db),
+    authorizedUsers: createAuthorizedUsersRepo(db),
+    audit: auditRepo,
+    logger,
+  });
 
   // The socket of the current leader session; null whenever this instance holds none.
   let currentSocket: SocketLike | null = null;
@@ -109,6 +127,7 @@ function main() {
     knowledge: createKnowledgeRepo(db),
     search: createSearchRepo(db),
     embeddings,
+    reminders,
     usage: usageRepo,
     settings: aiSettings,
     audit: auditRepo,
@@ -129,6 +148,7 @@ function main() {
     audit: auditRepo,
     logger,
     onTagged: (message, group, raw) => assistant.handle(message, group, raw),
+    onReplyWord: (message, group, raw) => assistant.handleReplyWord(message, group, raw),
   });
   const alerter = createAlerter({
     store: createAlertsRepo(db),
@@ -146,12 +166,14 @@ function main() {
     let heartbeat: Heartbeat | undefined;
     let indexing: EmbeddingJob | undefined;
     let scheduler: Scheduler | undefined;
+    let cleanup: AttachmentCleanup | undefined;
 
     const stopAll = async () => {
       // Lock lost: never write session state again from this instance.
       if (!lock.isHeld()) auth.discardPending();
       // Before the send queue stops, so a post in flight is finished or put back, never lost.
       await scheduler?.stop();
+      await cleanup?.stop();
       sendQueue?.stop();
       sendQueue = null;
       currentSocket = null;
@@ -215,7 +237,10 @@ function main() {
         isConnected: () => lock.isHeld() && !signal.aborted && connection!.isOpen(),
         settings: aiSettings,
         audit: auditRepo,
-        recordBotMessage: async (groupId, waMessageId, text) => {
+        expireReminderRequests: () => reminders.expireOverdue(),
+        attachments: attachmentsStore,
+        convertVoice,
+        recordBotMessage: async (groupId, waMessageId, text, type) => {
           const bot = currentSocket ? botIdentity(currentSocket) : { jid: null, lid: null };
           await messagesRepo.insertIfNew({
             groupId,
@@ -224,7 +249,7 @@ function main() {
             senderPhoneE164: phoneFromJid(bot.jid),
             senderName: null,
             isFromBot: true,
-            type: "text",
+            type,
             body: text,
             quotedWaMessageId: null,
             mentionsBot: false,
@@ -234,6 +259,7 @@ function main() {
         },
         logger,
       });
+      cleanup = createAttachmentCleanup({ store: attachmentsStore, audit: auditRepo, logger });
       indexing = createEmbeddingJob({
         store: createEmbeddingsRepo(db),
         settings: aiSettings,
@@ -251,6 +277,7 @@ function main() {
       indexing.start();
       await scheduler.start();
       checkpoint();
+      cleanup.start();
       return stopAll;
     } catch (error) {
       // Never leave a half-started session (above all, an open socket) behind.

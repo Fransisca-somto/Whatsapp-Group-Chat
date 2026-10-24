@@ -14,10 +14,14 @@ export const ATTENTION_STATUSES = [
   "skipped_late",
 ] as const satisfies readonly ScheduledPostStatus[];
 
-/** P15: what the group sees. A reminder is labelled; an announcement goes out as written. */
+/**
+ * P15: what the group sees. A reminder is labelled; an announcement goes out as written. With
+ * an attachment the text may be empty (P32): a reminder is then just "*Reminder*".
+ */
 export function formatScheduledPost(kind: ScheduledPostKind, body: string): string {
   const text = body.trim();
-  return kind === "reminder" ? `*Reminder:* ${text}` : text;
+  if (kind !== "reminder") return text;
+  return text ? `*Reminder:* ${text}` : "*Reminder*";
 }
 
 /**

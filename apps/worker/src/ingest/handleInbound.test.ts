@@ -32,6 +32,7 @@ function setup(status: GroupStatus | null) {
   const groups = memoryGroups(status ? [{ jid: GROUP, name: "Team", status }] : []);
   const messages = memoryMessages();
   const onTagged = vi.fn();
+  const onReplyWord = vi.fn();
   const onUnknownGroup = vi.fn(() => Promise.resolve(null));
   let clock = 0;
   const handler = createInboundHandler({
@@ -42,10 +43,11 @@ function setup(status: GroupStatus | null) {
     getBot: () => bot,
     onUnknownGroup,
     onTagged,
+    onReplyWord,
     logger,
     now: () => (clock += 1_000),
   });
-  return { handler, messages, groups, onTagged, onUnknownGroup };
+  return { handler, messages, groups, onTagged, onReplyWord, onUnknownGroup };
 }
 
 describe("inbound group messages", () => {
@@ -118,6 +120,28 @@ describe("inbound group messages", () => {
     // The raw message is passed on so the reply can quote it.
     const rawArgument = t.onTagged.mock.calls[0]?.[2] as WAMessage | undefined;
     expect(rawArgument?.key.id).toBe("M1");
+  });
+
+  it("hands an untagged staff yes/no on for reminder confirmation, and nothing else", async () => {
+    const t = setup("active");
+    await t.handler.handle(raw("M1", { conversation: "Yes!" }));
+    await t.handler.handle(raw("M2", { conversation: "yes, but make it 4pm" }));
+    await t.handler.handle(raw("M3", { conversation: "no" }, { fromMe: true }));
+    expect(t.onReplyWord).toHaveBeenCalledOnce();
+    expect(t.onReplyWord.mock.calls[0]?.[0]).toMatchObject({ waMessageId: "M1", body: "Yes!" });
+    expect(t.onTagged).not.toHaveBeenCalled();
+    expect(t.messages.rows).toHaveLength(3); // all stored as normal
+  });
+
+  it("sends a tagged yes down the tag path only", async () => {
+    const t = setup("active");
+    await t.handler.handle(
+      raw("M1", {
+        extendedTextMessage: { text: "@11112222 yes", contextInfo: { mentionedJid: [bot.lid] } },
+      }),
+    );
+    expect(t.onTagged).toHaveBeenCalledOnce();
+    expect(t.onReplyWord).not.toHaveBeenCalled();
   });
 
   it("stores the bot's own messages without treating them as tags", async () => {

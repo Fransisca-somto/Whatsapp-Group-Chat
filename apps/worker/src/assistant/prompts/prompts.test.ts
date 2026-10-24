@@ -17,6 +17,19 @@ describe("intent prompt", () => {
     expect(user?.content).toContain("<message>\nremind us Friday 3pm\n</message>");
   });
 
+  it("counts reminder requests worded as questions, and never lets earlier replies decide", () => {
+    const [system] = buildIntentMessages({
+      timezone: "Africa/Lagos",
+      nowLocal: "2026-10-24T09:00",
+      text: "can you set a reminder for tomorrow",
+      recent: [],
+    });
+    expect(system?.content).toContain('"could you set a reminder for tomorrow?"');
+    expect(system?.content).toContain('"when is the report due?") is a question');
+    expect(system?.content).toContain('still fill "dueAtLocal" with your best guess');
+    expect(system?.content).toContain("never change what the new message is asking for");
+  });
+
   it("pulls the JSON object out of fenced or chatty output", () => {
     expect(extractJsonObject('```json\n{"intent":"question"}\n```')).toBe('{"intent":"question"}');
     expect(extractJsonObject("no json here")).toBeNull();
@@ -56,6 +69,14 @@ describe("answer prompt", () => {
     expect(system).toContain("Reply with only a contact when the issue really needs that person");
     expect(system).toContain("do not say what kind of question it is");
     expect(system).not.toContain("Do not use outside knowledge");
+  });
+
+  it("never denies that reminders can be set", () => {
+    const system = buildAnswerMessages(input)[0]?.content ?? "";
+    expect(system).toContain("Never say you can't set reminders");
+    expect(system).toContain("never tell anyone to ignore a reminder confirmation");
+    expect(system).toContain("Never claim to have done something");
+    expect(system).not.toContain("You can only answer.");
   });
 
   it("wraps training, chat and the question as data", () => {

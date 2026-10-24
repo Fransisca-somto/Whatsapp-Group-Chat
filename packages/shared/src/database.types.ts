@@ -585,6 +585,13 @@ export type Database = {
       }
       scheduled_posts: {
         Row: {
+          attachment_deleted_at: string | null
+          attachment_kind: string | null
+          attachment_mime: string | null
+          attachment_name: string | null
+          attachment_path: string | null
+          attachment_seconds: number | null
+          attachment_size: number | null
           body: string
           claim_token: string | null
           claimed_at: string | null
@@ -607,6 +614,13 @@ export type Database = {
           wa_message_id: string | null
         }
         Insert: {
+          attachment_deleted_at?: string | null
+          attachment_kind?: string | null
+          attachment_mime?: string | null
+          attachment_name?: string | null
+          attachment_path?: string | null
+          attachment_seconds?: number | null
+          attachment_size?: number | null
           body: string
           claim_token?: string | null
           claimed_at?: string | null
@@ -629,6 +643,13 @@ export type Database = {
           wa_message_id?: string | null
         }
         Update: {
+          attachment_deleted_at?: string | null
+          attachment_kind?: string | null
+          attachment_mime?: string | null
+          attachment_name?: string | null
+          attachment_path?: string | null
+          attachment_seconds?: number | null
+          attachment_size?: number | null
           body?: string
           claim_token?: string | null
           claimed_at?: string | null
@@ -768,9 +789,22 @@ export type Database = {
         Returns: boolean
       }
       check_worker_offline: { Args: never; Returns: undefined }
+      attachments_due_for_cleanup: {
+        Args: { p_limit?: number }
+        Returns: {
+          attachment_path: string
+        }[]
+      }
       claim_due_posts: {
         Args: { p_claim_token: string; p_limit?: number }
         Returns: {
+          attachment_deleted_at: string | null
+          attachment_kind: string | null
+          attachment_mime: string | null
+          attachment_name: string | null
+          attachment_path: string | null
+          attachment_seconds: number | null
+          attachment_size: number | null
           body: string
           claim_token: string | null
           claimed_at: string | null
@@ -778,6 +812,7 @@ export type Database = {
           created_by_phone_e164: string | null
           created_by_user_id: string | null
           created_via: string
+          dismissed_at: string | null
           due_at: string
           group_id: string
           id: string
@@ -802,6 +837,10 @@ export type Database = {
       configure_alert_email: {
         Args: { p_api_key: string; p_from: string; p_recipients: string[] }
         Returns: undefined
+      }
+      confirm_reminder_request: {
+        Args: { p_request_id: string; p_requester_jid: string }
+        Returns: string
       }
       current_dashboard_role: { Args: never; Returns: string }
       get_openrouter_key: { Args: never; Returns: string }

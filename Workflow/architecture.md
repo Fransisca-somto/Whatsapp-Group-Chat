@@ -15,6 +15,8 @@
 | WhatsApp (groups) | **Baileys** (`baileys`, formerly `@whiskeysockets/baileys`), pinned exactly at `7.0.0-rc14` | Unofficial WhatsApp Web client. |
 | Owner alerts | **Resend** email HTTP API (free plan), called with `fetch` (no SDK) | ADR-025. The worker sends logged-out / conflict / reconnect-failure alerts; the database (`pg_cron` + `pg_net`) sends the worker-offline alert. The free test sender only delivers to the Resend account's own address until a domain is verified. |
 | Database | **Supabase Postgres** with **pgvector** and full-text search | Relational data, hybrid search and session storage in one place. |
+| File storage | **Supabase Storage**, private bucket `post-attachments` (migration 0014) | Post attachments and recorded voice notes; the dashboard uploads with the user's session, the worker reads with the service role (ADR-036). |
+| Audio conversion | **ffmpeg-static** (worker dependency; allow-listed build in `pnpm-workspace.yaml`) | Converts dashboard recordings to WhatsApp's voice-note format (Ogg/Opus). Loaded at runtime: without it the worker runs and only voice notes wait. Its install downloads the binary from GitHub. |
 | Auth (dashboard) | **Supabase Auth** (email + password, sign-ups disabled) via `@supabase/ssr` | Browser and server clients in `apps/dashboard/lib/supabase/`. `apps/dashboard/proxy.ts` (Next.js 16's replacement for `middleware.ts`) refreshes the session and redirects signed-out visitors to `/login`; it is an optimistic check only. `server/currentUser.ts` re-checks the `dashboard_users` role; a user with no row is sent to `/auth/signout?reason=no_access`. |
 | Realtime | **Supabase Realtime** | Dashboard sees worker status and pairing codes live; worker receives requests. |
 | AI (chat) | **OpenRouter**, called with `fetch` (no SDK). The company's own key and its chat and fallback models are set by the owner on the dashboard Settings page; the key lives in Supabase Vault (ADR-027). Suggested: a small Claude Haiku model, with a fallback from a different provider | Cheap, swappable models; a new company needs no server access to set its AI account. |
@@ -51,8 +53,9 @@
 │           ├── whatsapp/       # Baileys socket, auth-state adapter, send queue
 │           ├── ingest/         # Message intake, storage, dedupe, tag detection
 │           ├── assistant/      # Intent, answer generation, retrieval
-│           ├── reminders/      # Tag-to-create flow, confirmation state machine
-│           ├── scheduler/      # 30s poller (leader-only, only while WhatsApp is open): late skips, claiming, sending, next dates of repeating posts
+│           ├── reminders/      # Tag-to-create flow: permission check (code), confirmation state machine
+│           ├── scheduler/      # 30s poller (leader-only, only while WhatsApp is open): late skips, claiming, sending (with attachments), next dates of repeating posts; attachmentCleanup.ts (daily)
+│           ├── media/          # convertVoice.ts: recordings → WhatsApp voice notes (ffmpeg)
 │           ├── pairing/        # Pair / relink request handling
 │           ├── health/         # Heartbeat, alerts
 │           ├── embeddings/     # Background search indexing job (leader-only, every 30 s)
@@ -102,7 +105,7 @@ Every tagged message passes through these steps in order. No step may be skipped
 
 The LLM's output can never grant permissions, choose a group, or write data.
 
-**Implemented in Phase 3** (`assistant/pipeline.ts`, per group through `assistant/groupQueue.ts`): steps 1–3 live in ingest; the pipeline then checks the group is `active` with AI on (paused or AI off: silent), skips tags older than 5 minutes (P4), applies the rate gate, then two set-up gates (OpenRouter key and chat model saved; the group has active training) before step 6. Step 5 (pending confirmation) arrives in Phase 6; until then `create_reminder` gets a fixed "not available yet" reply. Every outcome sets `handled_status` and writes one `bot_actions` row (`api-interfaces.md` §4.1).
+**Implemented in Phase 3** (`assistant/pipeline.ts`, per group through `assistant/groupQueue.ts`): steps 1–3 live in ingest; the pipeline then checks the group is `active` with AI on (paused or AI off: silent), skips tags older than 5 minutes (P4), applies the rate gate, then two set-up gates (OpenRouter key and chat model saved; the group has active training) before step 6. Step 5 (pending confirmation) is implemented in Phase 6 (`reminders/reminderFlow.ts`): a tagged "yes"/"no" is checked against the sender's awaiting reminder before the AI set-up gates, and an untagged one reaches only that check (`assistant.handleReplyWord`); `create_reminder` goes to the same flow (permission and time checked by code, confirmed by `confirm_reminder_request()`). Every outcome sets `handled_status` and writes one `bot_actions` row (`api-interfaces.md` §4.1).
 
 ## 5. Single-Connection Guarantee (Leader Lock)
 

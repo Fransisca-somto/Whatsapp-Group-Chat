@@ -4,13 +4,17 @@
 //
 //   group gate (active, AI on; paused → silent, P6) → stale check (> 5 min, P4)
 //   → rate gate (user per minute, group per day) → AI configured? → group trained?
-//   → intent → code decision → (question: search this group) → answer or fixed reply → format
-//   → send → status, usage, audit
+//   → (a "yes"/"no" about the sender's reminder: confirmation flow) → AI configured? → trained?
+//   → intent → code decision → (question: search this group; create_reminder: reminder flow)
+//   → answer or fixed reply → format → send → status, usage, audit
+//
+// An untagged "yes"/"no" (handleReplyWord) only ever reaches the reminder confirmation check.
 import type { WAMessage } from "baileys";
 
 import {
   localDateInTz,
   localDateTimeInTz,
+  replyWord,
   type HandledStatus,
   type InboundGroupMessage,
   type IntentResult,
@@ -26,6 +30,7 @@ import type { KnowledgeStore } from "../db/knowledgeRepo.ts";
 import type { MessageStore, RecentMessage } from "../db/messagesRepo.ts";
 import type { SearchQuery, SearchStore } from "../db/searchRepo.ts";
 import type { UsageStore } from "../db/usageRepo.ts";
+import type { ReminderFlow } from "../reminders/reminderFlow.ts";
 import type { BotIdentity } from "../ingest/detectTag.ts";
 import type { Logger } from "../logger.ts";
 import { phoneFromJid } from "../whatsapp/jids.ts";
@@ -60,6 +65,7 @@ export type AssistantDeps = {
   settings: AiSettingsStore;
   audit: AuditStore;
   ai: OpenRouterClient;
+  reminders: ReminderFlow;
   send: SendQueue;
   getBot: () => BotIdentity;
   logger: Logger;
@@ -73,6 +79,9 @@ export type Assistant = {
   handle(message: InboundGroupMessage, group: GroupRecord, raw: WAMessage): void;
   /** Handles one message now (tests call this directly). */
   process(message: InboundGroupMessage, group: GroupRecord, raw: WAMessage): Promise<void>;
+  /** An untagged "yes"/"no": queued like a tag, checked only against the sender's reminder. */
+  handleReplyWord(message: InboundGroupMessage, group: GroupRecord, raw: WAMessage): void;
+  processReplyWord(message: InboundGroupMessage, group: GroupRecord, raw: WAMessage): Promise<void>;
 };
 
 /** The result of one tagged message, written to the message row and the audit log. */
@@ -212,10 +221,16 @@ export function createAssistant(deps: AssistantDeps): Assistant {
     });
 
     /** Sends a reply and finishes; a failed send turns the outcome into `failed`. */
-    const replyAndFinish = async (text: string, showTyping: boolean, outcome: Outcome) => {
+    const replyAndFinish = async (
+      text: string,
+      showTyping: boolean,
+      outcome: Outcome,
+      onSent?: (waMessageId: string) => Promise<void>,
+    ) => {
       const detail = { ...outcome.detail, ...aiDetail() };
       const sentId = await reply(text, showTyping);
       if (sentId) {
+        await onSent?.(sentId);
         await finish({ ...outcome, detail: { ...detail, replyWaMessageId: sentId } });
       } else {
         await finish({
@@ -255,6 +270,22 @@ export function createAssistant(deps: AssistantDeps): Assistant {
         detail: { scope: "group", notified: groupGate === "notify", repliesToday },
       });
       return;
+    }
+
+    // Phase 6: "@bot yes" or a reply "yes" to the confirmation is the sender's answer, not a
+    // question. Checked before the AI set-up gates: confirming needs no AI.
+    const word = replyWord(message.body);
+    if (word) {
+      const answer = await deps.reminders.handleReplyWord({
+        groupId: group.id,
+        senderJid: message.senderJid,
+        word,
+        timeZone: settings.timezone,
+      });
+      if (answer) {
+        await replyAndFinish(answer.text, false, answer, answer.onSent);
+        return;
+      }
     }
 
     // Set-up gates: the company's AI account, then this group's training.
@@ -436,13 +467,19 @@ export function createAssistant(deps: AssistantDeps): Assistant {
           });
           return;
         }
-        case "create_reminder":
-          await replyAndFinish(TEMPLATES.remindersNotYet, false, {
-            status: "refused",
-            action: "refused",
-            detail: { intent: "create_reminder", reason: "reminders_not_available" },
+        case "create_reminder": {
+          const answer = await deps.reminders.handleRequest({
+            groupId: group.id,
+            permission: groupSettings.reminderPermission,
+            senderJid: message.senderJid,
+            senderPhoneE164: message.senderPhoneE164,
+            sourceWaMessageId: message.waMessageId,
+            draft: intent.reminder,
+            timeZone: settings.timezone,
           });
+          await replyAndFinish(answer.text, false, answer, answer.onSent);
           return;
+        }
         case "dashboard_only_action":
           await replyAndFinish(TEMPLATES.dashboardOnly, false, {
             status: "refused",
@@ -478,7 +515,65 @@ export function createAssistant(deps: AssistantDeps): Assistant {
     }
   }
 
+  /** An untagged "yes"/"no": answered only when it is about the sender's own reminder. */
+  async function processReplyWord(
+    message: InboundGroupMessage,
+    group: GroupRecord,
+    raw: WAMessage,
+  ) {
+    const word = replyWord(message.body);
+    if (!word || group.status !== "active") return;
+    const groupSettings = await deps.groups.assistantSettings(group.id);
+    if (!groupSettings?.aiEnabled) return;
+    const settings = await deps.settings.load();
+    const answer = await deps.reminders.handleReplyWord({
+      groupId: group.id,
+      senderJid: message.senderJid,
+      word,
+      timeZone: settings.timezone,
+    });
+    if (!answer) return; // ordinary chat
+
+    let sentId: string | null = null;
+    try {
+      ({ waMessageId: sentId } = await deps.send.enqueue({
+        groupJid: group.jid,
+        text: answer.text,
+        quoted: raw,
+      }));
+      await storeBotReply(group, sentId, answer.text, message.waMessageId);
+      await answer.onSent?.(sentId);
+    } catch (error) {
+      log.error({ err: error, groupId: group.id }, "reminder reply was not sent");
+    }
+    await deps.audit
+      .record({
+        action: sentId ? answer.action : "send_failed",
+        actorType: "member",
+        actorRef: message.senderPhoneE164 ?? message.senderJid,
+        groupId: group.id,
+        sourceWaMessageId: message.waMessageId,
+        detail: sentId
+          ? { ...answer.detail, replyWaMessageId: sentId }
+          : { ...answer.detail, intended: answer.action },
+      })
+      .catch((error: unknown) => log.error({ err: error }, "audit write failed"));
+  }
+
   return {
+    handleReplyWord(message, group, raw) {
+      void queue.run(group.id, async () => {
+        try {
+          await processReplyWord(message, group, raw);
+        } catch (error) {
+          log.error(
+            { err: error, groupId: group.id, waMessageId: message.waMessageId },
+            "reply word failed",
+          );
+        }
+      });
+    },
+    processReplyWord,
     handle(message, group, raw) {
       void queue.run(group.id, async () => {
         try {

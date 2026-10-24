@@ -33,6 +33,7 @@ function memoryStore(initial: Partial<Row>[]) {
     recurrenceRule: null,
     parentPostId: null,
     createdByUserId: "u1",
+    attachment: null,
     status: "scheduled",
     token: null,
     waMessageId: null,
@@ -50,6 +51,7 @@ function memoryStore(initial: Partial<Row>[]) {
     recurrenceRule: r.recurrenceRule,
     parentPostId: r.parentPostId,
     createdByUserId: r.createdByUserId,
+    attachment: r.attachment,
   });
   const finish = (id: string, token: string, change: Partial<Row>) => {
     const row = rows.find((r) => r.id === id && r.token === token && r.status === "sending");
@@ -83,6 +85,11 @@ function memoryStore(initial: Partial<Row>[]) {
     markFailed: (id, token, error) => finish(id, token, { status: "failed", lastError: error }),
     markUncertain: (id, token, reason) =>
       finish(id, token, { status: "delivery_uncertain", lastError: reason }),
+    noteTextNotSent: (id) => {
+      const row = rows.find((r) => r.id === id && r.status === "sent");
+      if (row) row.lastError = "text not sent";
+      return Promise.resolve();
+    },
     release: (id, token) => finish(id, token, { status: "scheduled", token: null }),
     insertNext: (post, dueAt) => {
       const series = post.parentPostId ?? post.id;
@@ -117,12 +124,18 @@ function memoryStore(initial: Partial<Row>[]) {
 
 function setup(
   initial: Partial<Row>[],
-  options: { sendError?: (n: number) => Error | null; connected?: () => boolean } = {},
+  options: {
+    sendError?: (n: number) => Error | null;
+    connected?: () => boolean;
+    expireReminderRequests?: () => Promise<void>;
+    files?: Record<string, Buffer>;
+    convertVoice?: (data: Buffer) => Promise<Buffer>;
+  } = {},
 ) {
   const memory = memoryStore(initial);
   const sent: (OutgoingMessage & { at: number })[] = [];
   const audits: AuditEntry[] = [];
-  const stored: { groupId: string; waMessageId: string; text: string }[] = [];
+  const stored: { groupId: string; waMessageId: string; text: string | null; type: string }[] = [];
   let sends = 0;
   const scheduler = createScheduler({
     store: memory.store,
@@ -135,6 +148,7 @@ function setup(
       },
     },
     isConnected: options.connected ?? (() => true),
+    expireReminderRequests: options.expireReminderRequests,
     settings: {
       load: () =>
         Promise.resolve({
@@ -152,10 +166,19 @@ function setup(
         return Promise.resolve();
       },
     },
-    recordBotMessage: (groupId, waMessageId, text) => {
-      stored.push({ groupId, waMessageId, text });
+    recordBotMessage: (groupId, waMessageId, text, type) => {
+      stored.push({ groupId, waMessageId, text, type });
       return Promise.resolve();
     },
+    attachments: {
+      download: (path) => {
+        const file = options.files?.[path];
+        return file ? Promise.resolve(file) : Promise.reject(new Error("Object not found"));
+      },
+    },
+    convertVoice:
+      options.convertVoice ??
+      ((data) => Promise.resolve(Buffer.concat([Buffer.from("OggS"), data]))),
     logger,
     now: memory.now,
     sleep: (ms) => {
@@ -182,7 +205,12 @@ describe("scheduler", () => {
     expect(t.rows[0]).toMatchObject({ status: "sent", waMessageId: "WA1", sentLate: false });
     expect(t.statusOf("p2")).toBe("scheduled");
     expect(t.stored).toEqual([
-      { groupId: "g1", waMessageId: "WA1", text: "*Reminder:* Submit the weekly report" },
+      {
+        groupId: "g1",
+        waMessageId: "WA1",
+        text: "*Reminder:* Submit the weekly report",
+        type: "text",
+      },
     ]);
     expect(t.audits).toEqual([
       expect.objectContaining({
@@ -199,6 +227,20 @@ describe("scheduler", () => {
     await t.scheduler.tick();
     expect(t.sent).toEqual([]);
     expect(t.statusOf("p1")).toBe("scheduled");
+  });
+
+  it("expires unconfirmed reminder requests every tick, even while disconnected", async () => {
+    let expired = 0;
+    const t = setup([{}], {
+      connected: () => false,
+      expireReminderRequests: () => {
+        expired++;
+        return Promise.resolve();
+      },
+    });
+    await t.scheduler.tick();
+    expect(expired).toBe(1);
+    expect(t.sent).toEqual([]);
   });
 
   it("spaces posts at least 3 seconds apart", async () => {
@@ -331,6 +373,170 @@ describe("scheduler", () => {
       ]);
       await t.scheduler.tick();
       expect(t.rows.filter((r) => r.status === "scheduled")).toHaveLength(1);
+    });
+  });
+
+  describe("attachments (6.8)", () => {
+    const PHOTO = {
+      path: "a1/poster.png",
+      kind: "image" as const,
+      mime: "image/png",
+      name: "poster.png",
+      size: 3,
+      seconds: null,
+    };
+    const files = {
+      "a1/poster.png": Buffer.from("png"),
+      "a2/report.pdf": Buffer.from("pdf"),
+      "a3/song.mp3": Buffer.from("mp3"),
+      "a4/voice-note.webm": Buffer.from("webm"),
+    };
+
+    it("sends a photo with the text as its caption, in one message", async () => {
+      const t = setup([{ kind: "reminder", body: "Fire drill at 3pm", attachment: PHOTO }], {
+        files,
+      });
+      await t.scheduler.tick();
+      expect(t.sent).toHaveLength(1);
+      expect(t.sent[0]).toMatchObject({
+        text: "*Reminder:* Fire drill at 3pm",
+        media: { kind: "image", mimetype: "image/png", data: files["a1/poster.png"] },
+      });
+      expect(t.stored[0]).toMatchObject({ type: "image", text: "*Reminder:* Fire drill at 3pm" });
+      expect(t.audits.at(-1)?.detail).toMatchObject({ attachment: "image" });
+    });
+
+    it("sends a document under its own name; an announcement can have no text", async () => {
+      const t = setup(
+        [
+          {
+            body: "",
+            attachment: {
+              ...PHOTO,
+              path: "a2/report.pdf",
+              kind: "document",
+              mime: "application/pdf",
+              name: "Q3 Report.pdf",
+            },
+          },
+        ],
+        { files },
+      );
+      await t.scheduler.tick();
+      expect(t.sent[0]).toMatchObject({
+        text: "",
+        media: { kind: "document", fileName: "Q3 Report.pdf", mimetype: "application/pdf" },
+      });
+      expect(t.statusOf("p1")).toBe("sent");
+    });
+
+    it("sends audio first, then the text as a second message (P33)", async () => {
+      const t = setup(
+        [
+          {
+            body: "Listen before the meeting",
+            attachment: {
+              ...PHOTO,
+              path: "a3/song.mp3",
+              kind: "audio",
+              mime: "audio/mpeg",
+              name: "song.mp3",
+            },
+          },
+        ],
+        { files },
+      );
+      await t.scheduler.tick();
+      expect(t.sent.map((m) => [m.media?.kind ?? "text", m.text])).toEqual([
+        ["audio", ""],
+        ["text", "Listen before the meeting"],
+      ]);
+      expect(t.rows[0]).toMatchObject({ status: "sent", waMessageId: "WA1", lastError: null });
+      expect(t.stored.map((m) => [m.type, m.text])).toEqual([
+        ["audio", null],
+        ["text", "Listen before the meeting"],
+      ]);
+      expect(t.audits.at(-1)?.detail).toMatchObject({ attachment: "audio", textSent: true });
+    });
+
+    it("converts a recording and sends it as a voice note", async () => {
+      const t = setup(
+        [
+          {
+            body: "",
+            kind: "reminder",
+            attachment: {
+              ...PHOTO,
+              path: "a4/voice-note.webm",
+              kind: "voice",
+              mime: "audio/webm",
+              name: "Voice note",
+              seconds: 42,
+            },
+          },
+        ],
+        { files },
+      );
+      await t.scheduler.tick();
+      const media = t.sent[0]?.media;
+      expect(media).toMatchObject({ kind: "voice", seconds: 42 });
+      expect(media?.data.subarray(0, 4).toString()).toBe("OggS");
+      expect(t.sent[1]?.text).toBe("*Reminder*"); // an empty reminder is still labelled
+    });
+
+    it("keeps the post sent when only the text after the audio fails, and never resends", async () => {
+      const t = setup(
+        [
+          {
+            body: "Agenda attached",
+            attachment: {
+              ...PHOTO,
+              path: "a3/song.mp3",
+              kind: "audio",
+              mime: "audio/mpeg",
+              name: "song.mp3",
+            },
+          },
+        ],
+        { files, sendError: (n) => (n === 2 ? new SendError("timeout", "slow") : null) },
+      );
+      await t.scheduler.tick();
+      expect(t.rows[0]).toMatchObject({ status: "sent", lastError: "text not sent" });
+      expect(t.audits.at(-1)?.detail).toMatchObject({ textSent: false });
+      await t.scheduler.tick();
+      expect(t.sent).toHaveLength(1);
+    });
+
+    it("lets a post wait when its file can't be fetched or converted, and sends the others", async () => {
+      const t = setup(
+        [
+          { attachment: { ...PHOTO, path: "gone/missing.png" } },
+          {
+            groupId: "g2",
+            attachment: {
+              ...PHOTO,
+              path: "a4/voice-note.webm",
+              kind: "voice",
+              mime: "audio/webm",
+              name: "Voice note",
+              seconds: 5,
+            },
+          },
+          { groupId: "g3", body: "Plain text post" },
+        ],
+        { files, convertVoice: () => Promise.reject(new Error("ffmpeg is not installed")) },
+      );
+      await t.scheduler.tick();
+      expect(t.statusOf("p1")).toBe("scheduled");
+      expect(t.statusOf("p2")).toBe("scheduled");
+      expect(t.statusOf("p3")).toBe("sent");
+      expect(t.audits.map((a) => a.action)).toEqual(["post_sent"]); // nothing failed
+    });
+
+    it("gives the next post of a series the same file", async () => {
+      const t = setup([{ recurrenceRule: "FREQ=DAILY", attachment: PHOTO }], { files });
+      await t.scheduler.tick();
+      expect(t.rows[1]).toMatchObject({ status: "scheduled", attachment: PHOTO });
     });
   });
 });

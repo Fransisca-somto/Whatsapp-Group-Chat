@@ -1,5 +1,5 @@
 // groups access (data-models.md §3.4).
-import type { GroupStatus, TablesUpdate } from "@soft-agent-support/shared";
+import type { GroupStatus, ReminderPermission, TablesUpdate } from "@soft-agent-support/shared";
 
 import type { ServiceClient } from "./supabase.ts";
 
@@ -12,6 +12,8 @@ export type GroupAssistantSettings = {
   allowGeneralKnowledge: boolean;
   dailyReplyCap: number;
   botInstructions: string | null;
+  /** Who may create reminders by tagging the bot (Phase 6). */
+  reminderPermission: ReminderPermission;
 };
 
 export type GroupStore = {
@@ -84,7 +86,9 @@ export function createGroupsRepo(db: ServiceClient): GroupStore {
     async assistantSettings(id) {
       const { data, error } = await db
         .from("groups")
-        .select("ai_enabled, allow_general_knowledge, daily_reply_cap, bot_instructions")
+        .select(
+          "ai_enabled, allow_general_knowledge, daily_reply_cap, bot_instructions, reminder_permission",
+        )
         .eq("id", id)
         .maybeSingle();
       if (error) throw new Error(`groups read failed: ${error.message}`);
@@ -94,6 +98,7 @@ export function createGroupsRepo(db: ServiceClient): GroupStore {
             allowGeneralKnowledge: data.allow_general_knowledge,
             dailyReplyCap: data.daily_reply_cap,
             botInstructions: data.bot_instructions,
+            reminderPermission: data.reminder_permission as ReminderPermission,
           }
         : null;
     },

@@ -11,6 +11,12 @@
 //
 // Every tick: posts of active groups more than 2 h late → skipped_late; then claim and send,
 // at least 3 s apart. A repeating post gets its next date once it leaves `scheduled` for good.
+//
+// Attachments (Phase 6, 6.8): the file is fetched (and a voice note converted) before anything
+// is sent; if that fails nothing reached WhatsApp, so the post just waits for the next tick.
+// Photos, videos and documents carry the text as caption (one message). Audio and voice notes
+// can't, so the audio goes first and the text follows (P33): the post is sent once the audio
+// is confirmed, and a failed text only adds the note "text not sent" (never resent).
 import { randomUUID } from "node:crypto";
 
 import {
@@ -19,14 +25,22 @@ import {
   parseRrule,
   timeOfDayKey,
   type Json,
+  type MessageType,
 } from "@soft-agent-support/shared";
 
 import { lateNote } from "../assistant/templates.ts";
 import type { AiSettingsStore } from "../db/aiSettingsRepo.ts";
+import type { AttachmentsStore } from "../db/attachmentsStore.ts";
 import type { AuditStore } from "../db/auditRepo.ts";
 import type { ScheduledPost, ScheduledPostStore } from "../db/scheduledPostsRepo.ts";
 import type { Logger } from "../logger.ts";
-import { SendError, type SendQueue } from "../whatsapp/sendQueue.ts";
+import type { VoiceConverter } from "../media/convertVoice.ts";
+import {
+  SendError,
+  type OutgoingMedia,
+  type OutgoingMessage,
+  type SendQueue,
+} from "../whatsapp/sendQueue.ts";
 
 /** Older than this when found → skipped, never sent (overview §4.4). */
 export const LATE_LIMIT_MS = 2 * 60 * 60_000;
@@ -51,8 +65,19 @@ export function createScheduler(options: {
   isConnected: () => boolean;
   settings: AiSettingsStore;
   audit: AuditStore;
-  /** Stores the sent post in group_messages as a bot message (the chat view shows it). */
-  recordBotMessage: (groupId: string, waMessageId: string, text: string) => Promise<void>;
+  /** Step 2: marks reminder requests nobody confirmed in time as expired (Phase 6). */
+  expireReminderRequests?: () => Promise<void>;
+  /** Stores each sent message in group_messages as a bot message (the chat view shows it). */
+  recordBotMessage: (
+    groupId: string,
+    waMessageId: string,
+    text: string | null,
+    type: MessageType,
+  ) => Promise<void>;
+  /** Fetches post attachments (Phase 6, 6.8). */
+  attachments?: Pick<AttachmentsStore, "download">;
+  /** Turns a dashboard recording into a WhatsApp voice note (P34). */
+  convertVoice?: VoiceConverter;
   logger: Logger;
   intervalMs?: number;
   staggerMs?: number;
@@ -98,21 +123,95 @@ export function createScheduler(options: {
     }
   }
 
+  /** The file to send, fetched (and a voice note converted). Throws if that is not possible. */
+  async function prepareMedia(post: ScheduledPost): Promise<OutgoingMedia | null> {
+    const attachment = post.attachment;
+    if (!attachment) return null;
+    if (!options.attachments) throw new Error("attachments are not set up in this worker");
+    const data = await options.attachments.download(attachment.path);
+    switch (attachment.kind) {
+      case "voice": {
+        if (!options.convertVoice) throw new Error("voice notes are not set up in this worker");
+        const converted = await options.convertVoice(data);
+        return { kind: "voice", data: converted, seconds: attachment.seconds };
+      }
+      case "document":
+        return { kind: "document", data, mimetype: attachment.mime, fileName: attachment.name };
+      default:
+        return { kind: attachment.kind, data, mimetype: attachment.mime };
+    }
+  }
+
+  /** What group_messages records for a sent message. */
+  const messageType = (media: OutgoingMedia | null): MessageType =>
+    !media ? "text" : media.kind === "voice" ? "audio" : media.kind;
+
   /**
-   * Sends one claimed post. "released": nothing reached WhatsApp, it waits for the next tick
-   * (and so does the rest of the batch). "done": it left `scheduled` for good.
+   * Sends one message of a claimed post: its WhatsApp ID, or how the post was settled per P17
+   * ("released": nothing reached WhatsApp; "done": failed or uncertain).
+   */
+  async function sendOrSettle(
+    post: ScheduledPost,
+    token: string,
+    message: OutgoingMessage,
+  ): Promise<{ waMessageId: string } | "done" | "released"> {
+    try {
+      const { waMessageId } = await options.send.enqueue(message);
+      lastPostAt = now();
+      return { waMessageId };
+    } catch (error) {
+      lastPostAt = now();
+      const reason = error instanceof SendError ? error.reason : "unknown";
+      if (reason === "not_connected" || reason === "stopped") {
+        await store.release(post.id, token);
+        log.warn({ postId: post.id, reason }, "post not sent; it waits for the next tick");
+        return "released";
+      }
+      const text = error instanceof Error ? error.message : String(error);
+      if (reason === "send_failed") {
+        await store.markFailed(post.id, token, text);
+        await audit("post_failed", post, { error: text.slice(0, 200) });
+        log.error({ postId: post.id, err: error }, "WhatsApp rejected the post");
+      } else {
+        const why =
+          reason === "timeout" ? "WhatsApp did not confirm in time" : `unexpected error: ${text}`;
+        await store.markUncertain(post.id, token, why);
+        await audit("post_uncertain", post, { reason: why.slice(0, 200) });
+        log.error({ postId: post.id, err: error }, "post delivery uncertain");
+      }
+      return "done";
+    }
+  }
+
+  /**
+   * Sends one claimed post. "released": nothing reached WhatsApp because it went away (the rest
+   * of the batch waits too). "deferred": its file couldn't be prepared; it waits, the batch goes
+   * on. "done": it left `scheduled` for good.
    */
   async function sendPost(
     post: ScheduledPost,
     token: string,
     groupJid: string | undefined,
     timeZone: string,
-  ): Promise<"done" | "released"> {
+  ): Promise<"done" | "released" | "deferred"> {
     if (!groupJid) {
       await store.markFailed(post.id, token, "group not found");
       await audit("post_failed", post, { error: "group not found" });
       return "done";
     }
+
+    let media: OutgoingMedia | null;
+    try {
+      media = await prepareMedia(post);
+    } catch (error) {
+      await store.release(post.id, token);
+      log.warn(
+        { postId: post.id, err: error },
+        "attachment could not be prepared; the post waits for the next tick",
+      );
+      return "deferred";
+    }
+
     const wait = lastPostAt + staggerMs - now();
     if (wait > 0) await sleep(wait);
     if (stopped || !options.isConnected()) {
@@ -122,52 +221,72 @@ export function createScheduler(options: {
 
     const late = now() - post.dueAt.getTime() > LATE_NOTE_AFTER_MS;
     const body = formatScheduledPost(post.kind, post.body);
-    const text = late ? `${body}\n${lateNote(post.dueAt, new Date(now()), timeZone)}` : body;
+    const note = late ? lateNote(post.dueAt, new Date(now()), timeZone) : "";
+    const text = [body, note].filter(Boolean).join("\n");
+    const audioFirst = media?.kind === "audio" || media?.kind === "voice";
 
-    let waMessageId: string;
-    try {
-      ({ waMessageId } = await options.send.enqueue({ groupJid, text }));
-    } catch (error) {
-      lastPostAt = now();
-      const reason = error instanceof SendError ? error.reason : "unknown";
-      if (reason === "not_connected" || reason === "stopped") {
-        await store.release(post.id, token);
-        log.warn({ postId: post.id, reason }, "post not sent; it waits for the next tick");
-        return "released";
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      if (reason === "send_failed") {
-        await store.markFailed(post.id, token, message);
-        await audit("post_failed", post, { error: message.slice(0, 200) });
-        log.error({ postId: post.id, err: error }, "WhatsApp rejected the post");
-      } else {
-        const why =
-          reason === "timeout"
-            ? "WhatsApp did not confirm in time"
-            : `unexpected error: ${message}`;
-        await store.markUncertain(post.id, token, why);
-        await audit("post_uncertain", post, { reason: why.slice(0, 200) });
-        log.error({ postId: post.id, err: error }, "post delivery uncertain");
-      }
-      return "done";
-    }
+    // The first (and usually only) message: the file with its caption, the audio alone, or text.
+    const first: OutgoingMessage = media
+      ? { groupJid, text: audioFirst ? "" : text, media }
+      : { groupJid, text };
+    const result = await sendOrSettle(post, token, first);
+    if (result === "done" || result === "released") return result;
+    const sent = result.waMessageId;
 
-    lastPostAt = now();
     // The post is in the group. If this write fails it stays `sending`, and the next session
     // marks it uncertain; it is never sent again automatically.
-    await store.markSent(post.id, token, waMessageId, late);
+    await store.markSent(post.id, token, sent, late);
+    const firstText = audioFirst ? null : text || null;
     await options
-      .recordBotMessage(post.groupId, waMessageId, text)
+      .recordBotMessage(post.groupId, sent, firstText, messageType(media))
       .catch((error: unknown) =>
         log.error({ err: error, postId: post.id }, "could not store the sent post"),
       );
-    await audit("post_sent", post, { late, waMessageId });
-    log.info({ postId: post.id, groupId: post.groupId, late }, "post sent");
+
+    // P33: audio and voice notes can't carry text, so it follows as its own message.
+    let textSent: boolean | null = null;
+    if (audioFirst && text) {
+      try {
+        const { waMessageId } = await options.send.enqueue({ groupJid, text });
+        lastPostAt = now();
+        textSent = true;
+        await options
+          .recordBotMessage(post.groupId, waMessageId, text, "text")
+          .catch((error: unknown) =>
+            log.error({ err: error, postId: post.id }, "could not store the post's text"),
+          );
+      } catch (error) {
+        lastPostAt = now();
+        textSent = false;
+        log.error({ postId: post.id, err: error }, "audio sent, but its text was not");
+        await store
+          .noteTextNotSent(post.id)
+          .catch((noteError: unknown) =>
+            log.error({ err: noteError, postId: post.id }, "could not note the missing text"),
+          );
+      }
+    }
+
+    await audit("post_sent", post, {
+      late,
+      waMessageId: sent,
+      ...(media ? { attachment: media.kind } : {}),
+      ...(textSent !== null ? { textSent } : {}),
+    });
+    log.info(
+      { postId: post.id, groupId: post.groupId, late, attachment: media?.kind },
+      "post sent",
+    );
     return "done";
   }
 
   async function tick() {
-    if (stopped || !options.isConnected()) return;
+    if (stopped) return;
+    // Step 2 needs no WhatsApp connection: expiring only changes the database.
+    await options
+      .expireReminderRequests?.()
+      .catch((error: unknown) => log.error({ err: error }, "could not expire reminder requests"));
+    if (!options.isConnected()) return;
     let timeZone: string;
     try {
       timeZone = (await options.settings.load()).timezone;
@@ -191,7 +310,7 @@ export function createScheduler(options: {
       for (const [index, post] of posts.entries()) {
         const outcome = await sendPost(post, token, jids.get(post.groupId), timeZone);
         if (outcome === "done") await scheduleNext(post, timeZone);
-        else {
+        else if (outcome === "released") {
           // WhatsApp went away: the rest of this batch waits for the next tick.
           for (const rest of posts.slice(index + 1)) await store.release(rest.id, token);
           return;

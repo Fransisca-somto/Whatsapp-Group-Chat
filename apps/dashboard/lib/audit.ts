@@ -58,6 +58,17 @@ export const ACTION_LABELS: Record<string, string> = {
   post_failed: "Post failed",
   post_uncertain: "Delivery uncertain",
   post_skipped_late: "Post skipped (late)",
+  reminder_requested: "Reminder requested",
+  reminder_confirmed: "Reminder confirmed",
+  reminder_declined: "Reminder cancelled",
+  reminder_expired: "Reminder request expired",
+  reminder_unclear: "Reminder not understood",
+  reminder_late_reply: "Reply after request expired",
+  refused_unauthorized: "Reminder refused",
+  authorized_user_added: "Authorized user added",
+  authorized_user_updated: "Authorized user changed",
+  authorized_user_deleted: "Authorized user removed",
+  attachment_deleted: "Unused attachment deleted",
 };
 
 export function actionLabel(action: string): string {
@@ -89,6 +100,12 @@ const REASONS: Record<string, string> = {
   timeout: "AI took too long",
   unavailable: "AI service down",
   rate_limited: "OpenRouter rate limit",
+  not_authorized: "not on the authorized list",
+  no_phone: "number not visible",
+  unclear_time: "time not clear",
+  too_soon: "time too soon",
+  too_far: "more than a year ahead",
+  bad_text: "text empty or too long",
 };
 
 /** "found 3 older messages" when search added history to an answer (Phase 4), else null. */
@@ -150,6 +167,8 @@ export function auditSummary(row: Pick<AuditRow, "action" | "detail">): string {
       const what = `${count.toLocaleString("en")} ${count === 1 ? "message" : "messages"}`;
       return days ? `${what} older than ${days} days` : what;
     }
+    case "attachment_deleted":
+      return text(field(d, "kind")) ?? "";
     case "post_created":
     case "post_updated":
     case "post_resent":
@@ -169,6 +188,13 @@ export function auditSummary(row: Pick<AuditRow, "action" | "detail">): string {
       return [text(field(d, "kind")), text(field(d, "error")) ?? text(field(d, "reason"))]
         .filter(Boolean)
         .join(" · ");
+    case "authorized_user_added":
+    case "authorized_user_updated":
+    case "authorized_user_deleted":
+      return text(field(d, "name")) ?? "";
+    case "reminder_requested":
+    case "reminder_confirmed":
+      return text(field(d, "dueAt")) ? `due ${text(field(d, "dueAt"))}` : "";
     case "ai_key_saved":
       return text(field(d, "hint")) ? `ends in …${text(field(d, "hint"))}` : "";
     case "ai_models_updated":

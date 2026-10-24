@@ -7,13 +7,14 @@ import {
   resolveDueAt,
   SCHEDULED_POST_BODY_MAX,
   scheduledPostInputSchema,
+  type Attachment,
   type RepeatRule,
   type ScheduledPostKind,
   type Weekday,
 } from "@soft-agent-support/shared";
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useId, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 
 import { DateTimePicker } from "@/components/DateTimePicker";
@@ -29,6 +30,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { discardUpload, uploadVoiceNote } from "@/lib/attachmentUpload";
 import {
   KIND_LABELS,
   formValuesFromPost,
@@ -37,6 +39,8 @@ import {
 } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 import { createScheduledPost, updateScheduledPost } from "@/server/actions/schedule";
+
+import { AttachmentPicker, type PendingAttachment } from "./AttachmentPicker";
 
 type Props = {
   groups: SchedulableGroup[];
@@ -80,6 +84,16 @@ function nextHourLocal(timeZone: string): string {
   return `${localDateTimeInTz(new Date(Date.now() + 60 * 60_000), timeZone).slice(0, 14)}00`;
 }
 
+/** Stands in for a recording that is attached on save, so the form checks pass before upload. */
+const RECORDING_PLACEHOLDER: Attachment = {
+  path: "00000000-0000-0000-0000-000000000000/voice-note.webm",
+  kind: "voice",
+  mime: "audio/webm",
+  name: "Voice note",
+  size: 1,
+  seconds: 1,
+};
+
 /** Weekday and day of month of a `YYYY-MM-DDTHH:mm` string, for repeat defaults. */
 function calendarOf(local: string): { weekday: Weekday; day: number } {
   const [year, month, day] = local.slice(0, 10).split("-").map(Number) as [number, number, number];
@@ -109,6 +123,7 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
         body: "",
         dueAtLocal: nextHourLocal(timeZone),
         repeat: null,
+        attachment: null as Attachment | null,
       };
   const start = calendarOf(initial.dueAtLocal);
 
@@ -123,8 +138,42 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
   const [monthDay, setMonthDay] = useState<number | "last">(
     initial.repeat?.kind === "monthly" ? initial.repeat.day : start.day <= 28 ? start.day : "last",
   );
+  const [attachment, setAttachment] = useState<Attachment | null>(initial.attachment);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment>(null);
+  const waitingFor =
+    pendingAttachment?.step === "recording"
+      ? "Finish the recording first (press Stop)."
+      : pendingAttachment?.step === "uploading"
+        ? "Wait for the upload to finish."
+        : null;
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  // Files uploaded in this form and not saved yet: removed again if the form closes unsaved.
+  const unsaved = useRef(new Set<string>());
+  const saved = useRef(false);
+  useEffect(
+    () => () => {
+      if (!saved.current) for (const path of unsaved.current) void discardUpload(path);
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    },
+    [previewUrl],
+  );
+
+  const dropAttachment = () => {
+    if (attachment && unsaved.current.has(attachment.path)) {
+      unsaved.current.delete(attachment.path);
+      void discardUpload(attachment.path);
+    }
+    setAttachment(null);
+    setPreviewUrl(null);
+  };
+  const isAudio = attachment?.kind === "audio" || attachment?.kind === "voice";
 
   const repeat: RepeatRule | null =
     repeatChoice === "none"
@@ -152,9 +201,23 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
     );
 
   const save = () => {
-    const parsed = scheduledPostInputSchema.safeParse({ groupId, kind, body, dueAtLocal, repeat });
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Check the post.");
+    if (waitingFor) {
+      setError(waitingFor);
+      return;
+    }
+    // A finished recording that wasn't attached yet is attached now: the person clearly means
+    // to send it, and it must never be left out silently.
+    const recorded = pendingAttachment?.step === "recorded" ? pendingAttachment : null;
+    const check = scheduledPostInputSchema.safeParse({
+      groupId,
+      kind,
+      body,
+      dueAtLocal,
+      repeat,
+      attachment: attachment ?? (recorded ? RECORDING_PLACEHOLDER : null),
+    });
+    if (!check.success) {
+      setError(check.error.issues[0]?.message ?? "Check the post.");
       return;
     }
     if (due && !due.ok) {
@@ -163,10 +226,35 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
     }
     setError(null);
     startTransition(async () => {
+      let saving = attachment;
+      if (recorded) {
+        const uploaded = await uploadVoiceNote(recorded.blob, recorded.seconds);
+        if (!uploaded.ok) {
+          setError(uploaded.error);
+          return;
+        }
+        unsaved.current.add(uploaded.attachment.path);
+        setAttachment(uploaded.attachment);
+        setPreviewUrl(URL.createObjectURL(recorded.blob));
+        saving = uploaded.attachment;
+      }
+      const parsed = scheduledPostInputSchema.safeParse({
+        groupId,
+        kind,
+        body,
+        dueAtLocal,
+        repeat,
+        attachment: saving,
+      });
+      if (!parsed.success) {
+        setError(parsed.error.issues[0]?.message ?? "Check the post.");
+        return;
+      }
       const result = post
         ? await updateScheduledPost({ ...parsed.data, id: post.id })
         : await createScheduledPost(parsed.data);
       if (result.ok) {
+        saved.current = true;
         toast.success(post ? "Post updated." : "Post scheduled.");
         onOpenChange(false);
         router.refresh();
@@ -228,7 +316,10 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
       </fieldset>
 
       <div className="flex flex-col gap-2">
-        <Label htmlFor={`${formId}-body`}>Message</Label>
+        <Label htmlFor={`${formId}-body`}>
+          Message
+          {attachment && <span className="font-normal text-muted-foreground"> (optional)</span>}
+        </Label>
         <Textarea
           id={`${formId}-body`}
           rows={4}
@@ -245,6 +336,23 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
           {body.trim().length.toLocaleString("en")} / {SCHEDULED_POST_BODY_MAX.toLocaleString("en")}{" "}
           characters
         </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium">Attachment</span>
+        <AttachmentPicker
+          value={attachment}
+          previewUrl={previewUrl}
+          disabled={pending}
+          onUploaded={(uploaded, url) => {
+            dropAttachment();
+            unsaved.current.add(uploaded.path);
+            setAttachment(uploaded);
+            setPreviewUrl(url);
+          }}
+          onRemove={dropAttachment}
+          onPendingChange={setPendingAttachment}
+        />
       </div>
 
       <div className="flex flex-col gap-2">
@@ -326,10 +434,29 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
         aria-live="polite"
       >
         <p className="text-xs font-medium text-muted-foreground">What the group will see</p>
-        <p className="whitespace-pre-wrap">
-          {kind === "reminder" && <strong>Reminder: </strong>}
-          {body.trim() || <span className="text-muted-foreground">Your message</span>}
-        </p>
+        {attachment && (
+          <p className="text-xs text-muted-foreground">
+            {attachment.kind === "voice"
+              ? "A voice note"
+              : attachment.kind === "audio"
+                ? "An audio message"
+                : `${attachment.kind === "document" ? "The document" : `The ${attachment.kind}`}`}
+            {isAudio
+              ? body.trim() || kind === "reminder"
+                ? ", then this text as a second message:"
+                : ""
+              : body.trim() || kind === "reminder"
+                ? ", with this text:"
+                : ""}
+          </p>
+        )}
+        {(body.trim() || kind === "reminder" || !attachment) && (
+          <p className="whitespace-pre-wrap">
+            {kind === "reminder" && <strong>{body.trim() ? "Reminder: " : "Reminder"}</strong>}
+            {body.trim() ||
+              (!attachment && <span className="text-muted-foreground">Your message</span>)}
+          </p>
+        )}
         {due?.ok && (
           <p className="text-xs text-muted-foreground">
             {repeat ? "First post " : "Posts "}
@@ -350,7 +477,11 @@ function PostForm({ groups, timeZone, post, defaultGroupId, onOpenChange }: Prop
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={pending || tooLong || groups.length === 0}>
+        {waitingFor && <p className="text-xs text-muted-foreground sm:mr-auto">{waitingFor}</p>}
+        <Button
+          type="submit"
+          disabled={pending || tooLong || groups.length === 0 || waitingFor !== null}
+        >
           {pending && <Loader2 aria-hidden="true" className="animate-spin" />}
           {post ? "Save changes" : "Schedule post"}
         </Button>
