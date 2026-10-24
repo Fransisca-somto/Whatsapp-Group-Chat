@@ -10,7 +10,7 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 7 — Hardening, not started (Phase 0–3, 5, 6 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | Merge `phase-6` into `main` (owner pushed it 2026-10-24); then plan Phase 7, including moving the worker to a host (Railway / Fly.io) |
+| **Current task** | Plan Phase 7 (hardening), including moving the worker to a host (Railway / Fly.io). `phase-6` merged into `main` (PR #6) |
 | **Blockers** | None |
 | **Last updated** | 2026-10-24 (Phase 6 complete) |
 
@@ -247,7 +247,7 @@ Newest first. One entry per working session.
 ### 2026-10-24 — Claude (Phase 6 complete)
 - Owner pushed `phase-6` to GitHub and reported "it's working well now" after the fixes (reminder requests as questions; unattached recording on save). Tasks 6.1–6.10 and Phase 6 marked ✅.
 - Not recorded step by step: which individual reminder and attachment checks were run (e.g. someone else's "yes", the expired reply, an oversized file). Worth a quick recheck during Phase 7's load test.
-- Next: merge `phase-6` into `main`; plan Phase 7 (hardening), including moving the worker off the owner's PC to a host, since the local network drops Supabase and WhatsApp (logs 2026-10-24).
+- `phase-6` merged into `main` (PR #6). Next: plan Phase 7 (hardening), including moving the worker off the owner's PC to a host, since the local network drops Supabase and WhatsApp (logs 2026-10-24).
 
 ### 2026-10-24 — Claude (Phase 6 live-test fix: recorded voice note left out of a post)
 - Owner: a scheduled post went out without the recorded audio. Checked read-only: the post was saved with no attachment and the storage bucket was empty, so the recording never left the browser (it waited for "Use recording", and saving didn't warn). Migration 0014 is applied; the worker sent what was saved.
