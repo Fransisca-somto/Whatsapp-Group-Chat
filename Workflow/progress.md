@@ -10,7 +10,7 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 7 — Hardening (Phase 0–3, 5, 6 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | 7.0–7.4 built on `phase-7`. Next: owner applies migration 0015, deploys the worker to Railway (README), stops the PC copy, and runs the live checks |
+| **Current task** | Worker live on AWS EC2 (t4g.micro, Docker, from `phase-7`). Next: merge `phase-7`, switch the server to `main`, apply migration 0015, live checks (restart, five tags, one backup) |
 | **Blockers** | None |
 | **Last updated** | 2026-10-24 (Phase 7 built, migration 0015) |
 
@@ -91,7 +91,7 @@ Plan: `Workflow/Phases/08-Tag-Reminders.md` (owner-approved 2026-10-23, P21–P2
 
 ### Phase 7 — Hardening 🟦
 Plan: `Workflow/Phases/10-Hardening.md` (owner-approved 2026-10-24; P35 revised to be host-neutral, P36–P40).
-- 🟦 7.0 Worker on any Docker host, Railway first (Dockerfile, README "Run the worker on any host"). Built; awaiting the Railway deploy.
+- 🟦 7.0 Worker on any Docker host (Dockerfile, README "Run the worker on any host"). **Live on AWS EC2 since 2026-10-25** (Railway, Koyeb and Google Cloud sign-ups failed); README still names Railway as the first example.
 - 🟦 7.1 Relink re-admission checklist (groups return on their own; migration 0015). Built; awaiting migration 0015 (live check optional, needs a spare SIM).
 - 🟦 7.2 Load test: 5 simultaneous tags in one group handled serially and correctly. Automated test passes (and fails without the per-group queue); live check awaits the owner.
 - 🟦 7.3 Backup/restore notes for session and data (`RUNBOOK.md`). Written; awaiting one backup run by the owner.
@@ -251,6 +251,14 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-25 — Claude (worker moved to AWS EC2)
+- Railway refused the owner's sign-up for its trial; Koyeb no longer accepts deployments (joining Mistral); Google Cloud sign-up failed too. AWS accepted the account (free plan: $100 credit, 183 days).
+- The owner set up an EC2 **t4g.micro (Arm, Ubuntu 26.04)** with 2 GB swap and Docker, cloned the repository on `phase-7`, built `apps/worker/Dockerfile` (first real build of the image: it works on Arm, ffmpeg's Linux binary included) and ran one container (`--restart unless-stopped --stop-timeout 15 --env-file worker.env`).
+- Issues on the way: the browser terminal pasted every command twice (harmless "name already in use" errors); `OWNER_ALERT_EMAILS` was missing or malformed in `worker.env` (Docker env files take no quotes, spaces around `=` or trailing comments); fixed by rewriting the line.
+- 15:58 UTC: after the PC worker was stopped, the server logged `lock acquired`, `auth state loaded` (8,726 rows in about 2 s, versus over a minute on the PC), `leader session started`, `connected to WhatsApp`, `groups synced` (2). No re-pairing.
+- Cost note: roughly $8–11/month (instance, 16 GB disk, public IPv4) from the AWS credit; the free plan ends after 6 months or when the credit runs out. Zero-spend budget alert recommended.
+- To do: README/ADR-037 still describe Railway as the first host (owner to confirm switching the worked example to AWS); merge `phase-7` and point the server at `main`; live checks.
 
 ### 2026-10-24 — Claude (Phase 7 built: hosting, relink re-admission, load test, runbook)
 - Plan `Phases/10-Hardening.md` approved; the owner asked not to build around Railway, so P35 became host-neutral (Dockerfile + README requirements, Railway as the first example) and the owner said "do what you recommend".
