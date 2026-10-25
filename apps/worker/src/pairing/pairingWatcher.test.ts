@@ -47,7 +47,14 @@ function setup(requests: PairingRequest[]) {
     },
   } as unknown as ConnectionManager;
 
-  const watcher = createPairingWatcher({ store, connection, logger, codeTtlMs: 120_000 });
+  const onRelink = vi.fn(() => Promise.resolve());
+  const watcher = createPairingWatcher({
+    store,
+    connection,
+    logger,
+    codeTtlMs: 120_000,
+    onRelink,
+  });
   return {
     watcher,
     expireStale,
@@ -56,6 +63,7 @@ function setup(requests: PairingRequest[]) {
     markCodeIssued,
     pair,
     relink,
+    onRelink,
     cancelPairing,
     open: () => openListeners.forEach((l) => l()),
     closePairing: () => closedListeners.forEach((l) => l("closed")),
@@ -96,6 +104,26 @@ describe("pairing watcher", () => {
     await t.watcher.start();
     await vi.advanceTimersByTimeAsync(0);
     expect(t.relink).toHaveBeenCalledBefore(t.pair);
+    // 7.1: group statuses are recorded before the old number is logged out.
+    expect(t.onRelink).toHaveBeenCalledBefore(t.relink);
+    await t.watcher.stop();
+  });
+
+  it("still relinks if recording group statuses fails", async () => {
+    const t = setup([request("relink")]);
+    t.onRelink.mockRejectedValueOnce(new Error("database down"));
+    await t.watcher.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.relink).toHaveBeenCalled();
+    expect(t.pair).toHaveBeenCalled();
+    await t.watcher.stop();
+  });
+
+  it("records nothing for a first link", async () => {
+    const t = setup([request("pair")]);
+    await t.watcher.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(t.onRelink).not.toHaveBeenCalled();
     await t.watcher.stop();
   });
 

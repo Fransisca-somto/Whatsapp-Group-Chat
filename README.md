@@ -34,7 +34,53 @@ Copy `.env.example` to `apps/worker/.env` and `apps/dashboard/.env.local` and fi
 ### 3. Deploy
 
 - **Dashboard:** deploy `apps/dashboard` to Vercel with the dashboard variables.
-- **Worker:** deploy `apps/worker` to an always-on host with the worker variables. Run **exactly one instance**, with stop-before-start deploys (no overlapping rolling deploys). Never run a second copy against the same Supabase project.
+- **Worker:** see **Run the worker on any host** below. Run **exactly one copy** per Supabase project.
+
+#### Run the worker on any host
+
+The worker ships as a Docker image (`apps/worker/Dockerfile`), so any host that runs containers works: Railway, Fly.io, Render, or a small server. Whatever the host, it must give the worker:
+
+1. **Always on.** Not "serverless" (Vercel can't run the worker): it holds a live WhatsApp connection.
+2. **Exactly one copy.** Never scale to two. The leader lock stops a second copy from connecting, but it would sit idle and make alerts and logs confusing. **Stop any copy running on a PC** once the host is up.
+3. **About 15 seconds to stop on redeploy** before it is force-stopped, so it can close WhatsApp, save the session and release the lock. The next copy then connects within seconds.
+4. **Internet access and environment variables.** Set the worker variables from `.env.example`: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SESSION_ENCRYPTION_KEY` (the **same** one as before, or the bot must be relinked), `RESEND_API_KEY`, `OWNER_ALERT_EMAILS`, and optionally `ALERT_FROM_EMAIL`, `DASHBOARD_URL`, `LOG_LEVEL`.
+
+No web address, port, volume or health-check URL is needed: the worker only makes outgoing connections, and its health shows on the dashboard (heartbeat) and by email (offline alert). The WhatsApp session is stored in Supabase, so moving hosts **does not need re-pairing**.
+
+Build it from the repository root (the shared package is included):
+
+```sh
+docker build -f apps/worker/Dockerfile -t group-assistant-worker .
+```
+
+##### Railway (first host)
+
+1. On railway.com: **New Project → Deploy from GitHub repo** → pick this repository. Railway deploys again whenever `main` changes.
+2. Open the service → **Settings**:
+   - **Build:** builder _Dockerfile_, Dockerfile path `apps/worker/Dockerfile`, root directory `/` (the repository root).
+   - **Deploy:** replicas **1**; restart policy _On failure_.
+   - **Networking:** no public domain (leave it off).
+   - **Region:** the one closest to your Supabase project (Supabase → Project Settings → General shows its region).
+3. **Variables:** add the worker variables above, plus `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=15` (requirement 3).
+4. **Deploy.** In **Logs**, wait for `lock acquired`, `leader session started` and `connected to WhatsApp`; the dashboard shows the worker as Connected.
+5. **Stop the worker on your PC** (Ctrl + C) and don't start it again while Railway runs it.
+
+Railway's trial is free for about a month; after that a paid plan (Hobby, about $5/month) keeps the worker running. If it stops, the offline email arrives within about 5 minutes. See `RUNBOOK.md`.
+
+##### Fly.io
+
+`fly launch --no-deploy --dockerfile apps/worker/Dockerfile` from the repository root, remove any `[http_service]` section from `fly.toml`, set `kill_timeout = "15s"`, add the variables with `fly secrets set NAME=value …`, then `fly deploy` and `fly scale count 1`.
+
+##### A server with Docker
+
+Build the image as above, put the variables in a file (never commit it), and run one container that restarts on its own and gets 15 s to stop:
+
+```sh
+docker run -d --name group-assistant-worker --restart unless-stopped \
+  --stop-timeout 15 --env-file worker.env group-assistant-worker
+```
+
+To update: `git pull`, build again, then `docker stop group-assistant-worker && docker rm group-assistant-worker` and run it again (stop the old one before starting the new one).
 
 ### 4. From the dashboard (owner)
 

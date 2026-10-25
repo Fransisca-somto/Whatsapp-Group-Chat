@@ -25,6 +25,12 @@ export type GroupStore = {
   setStatus(id: string, status: GroupStatus): Promise<void>;
   touchActivity(id: string, at: Date): Promise<void>;
   assistantSettings(id: string): Promise<GroupAssistantSettings | null>;
+  /** 7.1: records each active / paused group's status as the number is changed. */
+  markForRelink(at: Date): Promise<number>;
+  /** The status recorded at the last number change, if any (7.1). */
+  relinkStatus(id: string): Promise<{ status: GroupStatus; at: Date } | null>;
+  /** Back to its recorded status after the new number was added; the record is cleared. */
+  readmit(id: string, status: GroupStatus): Promise<void>;
 };
 
 const COLUMNS = "id, wa_group_jid, name, status";
@@ -82,6 +88,34 @@ export function createGroupsRepo(db: ServiceClient): GroupStore {
     setStatus: (id, status) => update(id, { status }),
 
     touchActivity: (id, at) => update(id, { last_activity_at: at.toISOString() }),
+
+    async markForRelink(at) {
+      let marked = 0;
+      // One update per status keeps it a plain table update (no SQL function needed).
+      for (const status of ["active", "paused"] as const) {
+        const { data, error } = await db
+          .from("groups")
+          .update({ status_before_relink: status, relinked_at: at.toISOString() })
+          .eq("status", status)
+          .select("id");
+        if (error) throw new Error(`groups update failed: ${error.message}`);
+        marked += data.length;
+      }
+      return marked;
+    },
+
+    async relinkStatus(id) {
+      const { data, error } = await db
+        .from("groups")
+        .select("status_before_relink, relinked_at")
+        .eq("id", id)
+        .maybeSingle();
+      if (error) throw new Error(`groups read failed: ${error.message}`);
+      if (!data?.status_before_relink || !data.relinked_at) return null;
+      return { status: data.status_before_relink as GroupStatus, at: new Date(data.relinked_at) };
+    },
+
+    readmit: (id, status) => update(id, { status, status_before_relink: null, relinked_at: null }),
 
     async assistantSettings(id) {
       const { data, error } = await db

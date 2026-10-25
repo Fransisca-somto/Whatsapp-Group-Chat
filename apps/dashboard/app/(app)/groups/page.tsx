@@ -43,6 +43,8 @@ type GroupRow = {
   status: GroupStatus;
   reminder_permission: ReminderPermission;
   last_activity_at: string | null;
+  /** Set while the group waits for the new number after a relink (7.1). */
+  relinked_at: string | null;
 };
 
 /** Pending first (they need action), then live groups, then the rest; by name within each. */
@@ -58,7 +60,9 @@ async function GroupsContent() {
   await requireCurrentUser();
   const supabase = await createClient();
   const [groupsResult, settingsResult, trainingResult] = await Promise.all([
-    supabase.from("groups").select("id, name, status, reminder_permission, last_activity_at"),
+    supabase
+      .from("groups")
+      .select("id, name, status, reminder_permission, last_activity_at, relinked_at"),
     supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
     supabase.from("knowledge_entries").select("group_id").eq("is_active", true),
   ]);
@@ -77,6 +81,11 @@ async function GroupsContent() {
         <Badge variant="outline">Not trained</Badge>
       </Link>
     );
+
+  /** 7.1: removed after a number change and not yet re-added (see the Connection page). */
+  const waitingForNumber = (group: GroupRow) =>
+    group.status === "removed" &&
+    group.relinked_at && <Badge variant="outline">Waiting for the new number</Badge>;
 
   const groups = (groupsResult.data as GroupRow[]).sort(
     (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.name.localeCompare(b.name),
@@ -126,6 +135,7 @@ async function GroupsContent() {
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusBadge status={group.status} />
                     {notTrained(group)}
+                    {waitingForNumber(group)}
                   </div>
                 </TableCell>
                 <TableCell>{REMINDER_PERMISSION_LABELS[group.reminder_permission]}</TableCell>
@@ -150,6 +160,7 @@ async function GroupsContent() {
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <StatusBadge status={group.status} />
                 {notTrained(group)}
+                {waitingForNumber(group)}
               </div>
             </div>
             <p className="text-sm text-muted-foreground">

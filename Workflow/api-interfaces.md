@@ -24,7 +24,7 @@
 ### 2.1 Pairing and relink
 1. **Dashboard (owner)** inserts into `pairing_requests`: `{ kind: 'pair' | 'relink', phone_e164, requested_by }`.
 2. **Worker** subscribes to `pairing_requests` inserts (Realtime) and also polls every 10 s as a fallback.
-3. On `relink`: worker logs out the current socket, deletes `wa_auth_state`, sets `wa_connection.status = 'pairing'`.
+3. On `relink`: worker first records each active / paused group's status (`groups.status_before_relink`, `relinked_at`; audit `relink_started` with the count, Phase 7, 7.1), then logs out the current socket, deletes `wa_auth_state`, sets `wa_connection.status = 'pairing'`. If recording fails, the relink still goes ahead (groups then just need re-approval).
 4. Worker opens a fresh socket and calls Baileys `requestPairingCode(phone)` (digits only).
 5. Worker updates the row: `status = 'code_issued', pairing_code, code_expires_at = now() + 120s` `[DEFAULT: adjust to actual WhatsApp expiry]`. The code is requested only after the socket's first `qr` event (the socket must be connected; the QR itself is never shown).
 6. **Dashboard** watches the row (Realtime) and shows `<PairingCodeCard>`.
@@ -99,7 +99,9 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 | `group-participants.update` | `ingest/ingest.ts` | Only when the bot is a participant (matched by JID, LID or phone): `remove` → group `removed`; `add` → fetch metadata, register as `pending`. |
 | connection `open` | `ingest/groupSync.ts` | `groupFetchAllParticipating()` and reconcile: new → `pending`, renamed → update, removed live group → `removed`, re-added → `pending`. Catches changes made while the worker was offline. |
 
-**Worker audit actions** (`actor_type = 'system'`): `group_detected`, `group_renamed` (detail `previousName`), `group_readded`, `group_removed` (detail `reason`, `previousStatus`).
+**Worker audit actions** (`actor_type = 'system'`): `group_detected`, `group_renamed` (detail `previousName`), `group_readded` (back to `pending`), `group_readmitted` (detail `status`: back to its status after a number change, 7.1), `group_removed` (detail `reason`, `previousStatus`), `relink_started` (detail `groups`).
+
+**Re-admission (7.1, ADR-038):** when the bot is present in a `removed` group (sync on connect or a live event), `groupDirectory.present` checks `relinkStatus`: recorded within 30 days → `readmit` to that status and clear the record; otherwise → `pending` as before. Archived groups stay archived.
 
 **Assistant audit actions** (one per tagged message; `actor_type = 'member'`, `actor_ref` = sender phone or JID, `source_wa_message_id` = the tag; detail never holds the prompt or the answer text). Every detail has `ms` (handling time); AI outcomes add `models`, `usedFallback`, `inputTokens`, `outputTokens`, `costUsd`, and replies add `replyWaMessageId`.
 

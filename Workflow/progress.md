@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 6 — Tag-to-Create Reminders (Phase 0–3, 5 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | 6.1–6.10 built on `phase-6`. Next: owner applies migration 0014, restarts the worker and runs the reminder and attachment live tests |
+| **Current phase** | Phase 7 — Hardening (Phase 0–3, 5, 6 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
+| **Current task** | 7.0–7.4 built on `phase-7`. Next: owner applies migration 0015, deploys the worker to Railway (README), stops the PC copy, and runs the live checks |
 | **Blockers** | None |
-| **Last updated** | 2026-10-24 (Phase 6 attachments and voice notes built, migration 0014) |
+| **Last updated** | 2026-10-24 (Phase 7 built, migration 0015) |
 
 ---
 
@@ -75,25 +75,27 @@ Plan: `Workflow/Phases/07-Scheduler.md` (owner-approved 2026-10-23, P14–P20; s
 - ✅ 5.5 "Needs attention" tab with Resend for uncertain items. Live test passed 2026-10-23.
 - **Exit criteria:** posts arrive within 30 s of due time; crash-and-restart never produces a duplicate.
 
-### Phase 6 — Tag-to-Create Reminders 🟦
+### Phase 6 — Tag-to-Create Reminders ✅
 Plan: `Workflow/Phases/08-Tag-Reminders.md` (owner-approved 2026-10-23, P21–P26).
-- 🟦 6.1 Authorized users page (name, phone, scope). Built; awaiting the live test.
-- 🟦 6.2 Per-group permission toggle enforcement (admins only / any member). Built; awaiting the live test.
-- 🟦 6.3 Reminder parsing in company timezone; code validation. Built; awaiting the live test.
-- 🟦 6.4 Confirmation state machine (requester only, yes/no, 2-minute expiry, one pending per user per group). Built; awaiting migration 0013 and the live test.
-- 🟦 6.5 Polite refusals for unauthorized users and dashboard-only requests (edit, cancel, recurring). Built; awaiting the live test.
-- 🟦 6.6 Attachments: storage bucket, policies and post columns (migration 0014). Plan: `Workflow/Phases/09-Post-Attachments.md` (owner-approved 2026-10-24, P27–P34). Built; awaiting migration 0014.
-- 🟦 6.7 Dashboard: attach a file or record a voice note on a post. Built; awaiting the live test.
-- 🟦 6.8 Worker: send attachments (caption on photo / video / document; audio and voice notes then the text). Built; awaiting the live test.
-- 🟦 6.9 Daily cleanup of unused attachments. Built; awaiting the live test.
-- 🟦 6.10 Scope change and docs. Done (scope approved by the owner with the plan).
+- ✅ 6.1 Authorized users page (name, phone, scope). Live test passed 2026-10-24.
+- ✅ 6.2 Per-group permission toggle enforcement (admins only / any member). Live test passed 2026-10-24.
+- ✅ 6.3 Reminder parsing in company timezone; code validation. Live test passed 2026-10-24.
+- ✅ 6.4 Confirmation state machine (requester only, yes/no, 2-minute expiry, one pending per user per group). Live test passed 2026-10-24.
+- ✅ 6.5 Polite refusals for unauthorized users and dashboard-only requests (edit, cancel, recurring). Live test passed 2026-10-24.
+- ✅ 6.6 Attachments: storage bucket, policies and post columns (migration 0014). Plan: `Workflow/Phases/09-Post-Attachments.md` (owner-approved 2026-10-24, P27–P34). Live test passed 2026-10-24.
+- ✅ 6.7 Dashboard: attach a file or record a voice note on a post. Live test passed 2026-10-24.
+- ✅ 6.8 Worker: send attachments (caption on photo / video / document; audio and voice notes then the text). Live test passed 2026-10-24.
+- ✅ 6.9 Daily cleanup of unused attachments. Live test passed 2026-10-24.
+- ✅ 6.10 Scope change and docs. Live test passed 2026-10-24.
 - **Exit criteria:** authorized user creates a reminder end-to-end; others are refused; nothing saved without "yes"; expired requests leave no reminder.
 
-### Phase 7 — Hardening ⬜
-- ⬜ 7.1 Relink re-admission checklist.
-- ⬜ 7.2 Load test: 5 simultaneous tags in one group handled serially and correctly.
-- ⬜ 7.3 Backup/restore notes for session and data.
-- ⬜ 7.4 Runbook: banned number, worker down, OpenRouter outage.
+### Phase 7 — Hardening 🟦
+Plan: `Workflow/Phases/10-Hardening.md` (owner-approved 2026-10-24; P35 revised to be host-neutral, P36–P40).
+- 🟦 7.0 Worker on any Docker host, Railway first (Dockerfile, README "Run the worker on any host"). Built; awaiting the Railway deploy.
+- 🟦 7.1 Relink re-admission checklist (groups return on their own; migration 0015). Built; awaiting migration 0015 (live check optional, needs a spare SIM).
+- 🟦 7.2 Load test: 5 simultaneous tags in one group handled serially and correctly. Automated test passes (and fails without the per-group queue); live check awaits the owner.
+- 🟦 7.3 Backup/restore notes for session and data (`RUNBOOK.md`). Written; awaiting one backup run by the owner.
+- ✅ 7.4 Runbook: banned number, worker down, OpenRouter outage, and more (`RUNBOOK.md`).
 
 ### Future (gated, do not start without owner approval) ⏸️
 - ⏸️ **Customer mode** — requires Phase 7 ✅, a consent and retention decision, and a ban-risk review.
@@ -212,6 +214,12 @@ Decision: A "yes"/"no" counts only when it is the whole message (fixed word list
 **ADR-036 — Attachments and voice notes on dashboard posts · 2026-10-24 · Accepted (owner decisions P27–P34; scope addition)**
 Decision: A dashboard post may carry one attachment that a person uploaded (photo, video, audio, document; ≤ 16 MB) or a voice note recorded in the dashboard (≤ 5 minutes). Files live in a private Supabase Storage bucket; the browser uploads them directly with the user's session (storage policies: dashboard users only). The scheduler fetches the file before sending, so a missing file just delays the post; photos, videos and documents carry the text as caption, while audio and voice notes go first and the text follows as a second message (the post is sent once the audio is confirmed; a failed text is noted, never resent). Recordings are converted to WhatsApp's voice-note format with ffmpeg (`ffmpeg-static`, new worker dependency). WhatsApp gets 60 s to confirm media. Files are deleted daily once every post using them is cancelled or finished more than 30 days ago. The AI never creates, edits or chooses media; tag-created reminders stay text-only. Consequences: the worker install includes an ~80 MB ffmpeg binary downloaded from GitHub; storage use stays small with the cleanup; the at-most-once rules are unchanged.
 
+**ADR-037 — Worker hosting: any Docker host, Railway first · 2026-10-24 · Accepted (owner decisions P35 revised, P36, P37)**
+Context: on the owner's PC the worker kept losing Supabase and WhatsApp. Decision: the worker ships as a standard Docker image (`apps/worker/Dockerfile`: only the worker and shared package, tsx and ffmpeg included, Node as the main process). The README states what any host must provide (always on, exactly one copy, ~15 s to stop on redeploy, variables, no public port) with Railway as the first worked example (settings entered on Railway's website; no Railway file in the repository) and notes for Fly.io and a plain Docker server. The leader lock still guarantees one WhatsApp connection during any overlap. Consequences: moving hosts is a configuration change with no re-pairing; Railway's trial lasts about a month, then a paid plan is needed (runbook).
+
+**ADR-038 — Groups return on their own after a number change · 2026-10-24 · Accepted (owner decision P38; amends the "re-added → pending" rule of task 2.1 for relinks)**
+Decision: before a relink logs the old number out, the worker records each active / paused group's status (`groups.status_before_relink`, `relinked_at`, migration 0015). When the new number is added to such a group within 30 days, it returns to that status without re-approval; groups removed for any other reason, or re-added later than 30 days, still come back as pending. The Connection page lists the groups waiting for the new number. Consequences: a routine number change needs only adding the number to each group; training and settings are kept.
+
 ---
 
 ## Open Defaults to Confirm
@@ -243,6 +251,21 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-24 — Claude (Phase 7 built: hosting, relink re-admission, load test, runbook)
+- Plan `Phases/10-Hardening.md` approved; the owner asked not to build around Railway, so P35 became host-neutral (Dockerfile + README requirements, Railway as the first example) and the owner said "do what you recommend".
+- Done: 7.0 `apps/worker/Dockerfile`, `.dockerignore`, README "Run the worker on any host" (Railway steps, Fly.io and Docker notes). Docker isn't installed on this PC, so the image wasn't built here; the install step was simulated in a scratch folder (frozen lockfile, worker + shared only, tsx and ffmpeg present) and the start command `node --import tsx src/index.ts` was run (it lists missing variables as expected). Railway's first build is the real test.
+- 7.1 migration `0015_relink_readmission.sql`; worker `markForRelink` / `relinkStatus` / `readmit`, pairing watcher `onRelink` hook (before logout; a failure doesn't block the relink), directory re-admission within 30 days; dashboard `ReadmissionChecklist` on Connection, "Waiting for the new number" badge on Groups, audit labels (`relink_started`, `group_readmitted`). `database.types.ts` edited by hand.
+- 7.2 `assistant/loadTest.test.ts`: real pipeline, group queue and send queue; verified it fails if the per-group queue is removed.
+- 7.3–7.4 `RUNBOOK.md`. Note: `supabase db dump` needs Docker, so the runbook's main backup is `pg_dump` through the session pooler (PostgreSQL client tools 17+), with the CLI route for Docker users.
+- Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, tests (shared 96, worker 268, dashboard 144), dashboard build: all pass.
+- **Needs the owner:** apply 0015 (`pnpm supabase db push`), regenerate types; deploy the worker on Railway following the README (region near Supabase, `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=15`, the same `SESSION_ENCRYPTION_KEY`), then **stop the PC worker**; live checks in the plan's Verify section (redeploy without duplicates, five tags at once, one backup run).
+- Changed docs: `progress.md`, `architecture.md`, `data-models.md`, `api-interfaces.md`, `ui-context.md`, `Phases/10-Hardening.md`; new `RUNBOOK.md`; README.
+
+### 2026-10-24 — Claude (Phase 6 complete)
+- Owner pushed `phase-6` to GitHub and reported "it's working well now" after the fixes (reminder requests as questions; unattached recording on save). Tasks 6.1–6.10 and Phase 6 marked ✅.
+- Not recorded step by step: which individual reminder and attachment checks were run (e.g. someone else's "yes", the expired reply, an oversized file). Worth a quick recheck during Phase 7's load test.
+- `phase-6` merged into `main` (PR #6). Next: plan Phase 7 (hardening), including moving the worker off the owner's PC to a host, since the local network drops Supabase and WhatsApp (logs 2026-10-24).
 
 ### 2026-10-24 — Claude (Phase 6 live-test fix: recorded voice note left out of a post)
 - Owner: a scheduled post went out without the recorded audio. Checked read-only: the post was saved with no attachment and the storage bucket was empty, so the recording never left the browser (it waited for "Use recording", and saving didn't warn). Migration 0014 is applied; the worker sent what was saved.

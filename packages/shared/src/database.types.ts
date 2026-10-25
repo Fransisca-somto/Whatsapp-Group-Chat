@@ -363,9 +363,11 @@ export type Database = {
           id: string
           last_activity_at: string | null
           name: string
+          relinked_at: string | null
           reminder_permission: string
           retention_days: number | null
           status: string
+          status_before_relink: string | null
           updated_at: string
           wa_group_jid: string
         }
@@ -380,9 +382,11 @@ export type Database = {
           id?: string
           last_activity_at?: string | null
           name: string
+          relinked_at?: string | null
           reminder_permission?: string
           retention_days?: number | null
           status?: string
+          status_before_relink?: string | null
           updated_at?: string
           wa_group_jid: string
         }
@@ -397,9 +401,11 @@ export type Database = {
           id?: string
           last_activity_at?: string | null
           name?: string
+          relinked_at?: string | null
           reminder_permission?: string
           retention_days?: number | null
           status?: string
+          status_before_relink?: string | null
           updated_at?: string
           wa_group_jid?: string
         }

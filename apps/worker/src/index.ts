@@ -229,7 +229,18 @@ function main() {
         getSocket: () => (lock.isHeld() && !signal.aborted ? currentSocket : null),
         logger,
       });
-      pairing = createPairingWatcher({ store: pairingRepo, connection, logger });
+      pairing = createPairingWatcher({
+        store: pairingRepo,
+        connection,
+        logger,
+        onRelink: async () => {
+          const marked = await groupsRepo.markForRelink(new Date());
+          logger.info({ groups: marked }, "group statuses recorded before the number change");
+          await auditRepo
+            .record({ action: "relink_started", actorType: "system", detail: { groups: marked } })
+            .catch((error: unknown) => logger.error({ err: error }, "audit write failed"));
+        },
+      });
       heartbeat = createHeartbeat({ store: connectionRepo, instanceId, logger });
       scheduler = createScheduler({
         store: createScheduledPostsRepo(db),
