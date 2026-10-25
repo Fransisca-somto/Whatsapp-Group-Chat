@@ -84,6 +84,8 @@ Editing `title` or `content` resets `embedding_status = 'pending'` and `embeddin
 | approved_by | uuid | FK → dashboard_users |
 | approved_at | timestamptz | |
 | last_activity_at | timestamptz | |
+| status_before_relink | text | `active` / `paused`: the status recorded when the number was changed (0015, 7.1) |
+| relinked_at | timestamptz | When that was recorded. Set together with `status_before_relink` (check). A `removed` group with these set is waiting for the new number; when it is added within 30 days the group returns to that status and both are cleared |
 | bot_instructions | text | Optional, ≤ 1,000 chars. Added to the fixed answer rules for this group, never replacing them (0009, ADR-026) |
 | allow_general_knowledge | boolean not null default true | General questions may be answered from the model's own knowledge; company questions stay training-only (0010, ADR-030) |
 

@@ -11,7 +11,7 @@
 | Dashboard | **Next.js (App Router) + TypeScript**, deployed on **Vercel** | Occasional-use screens; serverless fits perfectly. |
 | UI | **Tailwind CSS 4 + shadcn/ui** (Base UI primitives), lucide-react icons, **sonner** toasts, Inter and JetBrains Mono via `next/font` | See `ui-context.md`. Tailwind 4 has no `tailwind.config.ts`; tokens are mapped in `app/globals.css` with `@theme inline`. |
 | Dashboard forms | **react-hook-form** + `@hookform/resolvers` (zod) | Schemas come from `packages/shared`. |
-| Worker | **Node.js LTS + TypeScript**, deployed on **Railway or Fly.io** (single instance) | Baileys needs an always-on process holding a live socket. Serverless is not allowed for the worker. |
+| Worker | **Node.js LTS + TypeScript**, shipped as a **Docker image** (`apps/worker/Dockerfile`) for any always-on host; **Railway** first (ADR-037), Fly.io or a plain server work the same | Baileys needs an always-on process holding a live socket. Serverless is not allowed for the worker. Nothing host-specific in the code; the README lists what a host must provide. |
 | WhatsApp (groups) | **Baileys** (`baileys`, formerly `@whiskeysockets/baileys`), pinned exactly at `7.0.0-rc14` | Unofficial WhatsApp Web client. |
 | Owner alerts | **Resend** email HTTP API (free plan), called with `fetch` (no SDK) | ADR-025. The worker sends logged-out / conflict / reconnect-failure alerts; the database (`pg_cron` + `pg_net`) sends the worker-offline alert. The free test sender only delivers to the Resend account's own address until a domain is verified. |
 | Database | **Supabase Postgres** with **pgvector** and full-text search | Relational data, hybrid search and session storage in one place. |
@@ -166,7 +166,9 @@ SUPABASE_SERVICE_ROLE_KEY     # server-only, used sparingly in server actions
 ```
 The worker validates all variables with zod on boot (`apps/worker/src/env.ts`) and exits with a clear error listing every missing or invalid variable by name (never its value). Variables become **required in the task that first uses them** (ADR-024): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and `SESSION_ENCRYPTION_KEY` from task 1.1; `RESEND_API_KEY` and `OWNER_ALERT_EMAILS` from task 1.7. The OpenRouter key and models are **not** environment variables: the owner sets them on the dashboard Settings page and the worker reads them from the database (ADR-027). Search uses the same key with a fixed embedding model, so the `EMBEDDINGS_*` variables were removed in Phase 4 (ADR-031); leftover values are ignored. Before a variable becomes required it is optional but still format-checked when set. Empty values count as unset.
 
-Locally the worker reads `apps/worker/.env` through Node's built-in `--env-file-if-exists` flag in its `dev` and `start` scripts (no `dotenv`). On the host, variables come from the platform and no file is needed.
+Locally the worker reads `apps/worker/.env` through Node's built-in `--env-file-if-exists` flag in its `dev` and `start` scripts (no `dotenv`). On the host, variables come from the platform and no file is needed (the Docker image runs `node --import tsx src/index.ts` directly, so the host's stop signal reaches the worker's graceful shutdown).
+
+**Hosting rules (ADR-037):** exactly one copy per Supabase project; the host gives it about 15 s to stop on redeploy (Railway: `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=15`; Fly.io: `kill_timeout`; Docker: `--stop-timeout`) so it closes WhatsApp, flushes the session and releases the lock; no public port or health-check URL (health is the heartbeat and the offline email). Any overlap during a redeploy is covered by the leader lock (§5). Moving hosts needs no re-pairing, only the same `SESSION_ENCRYPTION_KEY`.
 
 ## 9. Time Rules
 

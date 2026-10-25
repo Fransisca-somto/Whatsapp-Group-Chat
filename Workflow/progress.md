@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 7 — Hardening, not started (Phase 0–3, 5, 6 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | Plan Phase 7 (hardening), including moving the worker to a host (Railway / Fly.io). `phase-6` merged into `main` (PR #6) |
+| **Current phase** | Phase 7 — Hardening (Phase 0–3, 5, 6 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
+| **Current task** | 7.0–7.4 built on `phase-7`. Next: owner applies migration 0015, deploys the worker to Railway (README), stops the PC copy, and runs the live checks |
 | **Blockers** | None |
-| **Last updated** | 2026-10-24 (Phase 6 complete) |
+| **Last updated** | 2026-10-24 (Phase 7 built, migration 0015) |
 
 ---
 
@@ -89,11 +89,13 @@ Plan: `Workflow/Phases/08-Tag-Reminders.md` (owner-approved 2026-10-23, P21–P2
 - ✅ 6.10 Scope change and docs. Live test passed 2026-10-24.
 - **Exit criteria:** authorized user creates a reminder end-to-end; others are refused; nothing saved without "yes"; expired requests leave no reminder.
 
-### Phase 7 — Hardening ⬜
-- ⬜ 7.1 Relink re-admission checklist.
-- ⬜ 7.2 Load test: 5 simultaneous tags in one group handled serially and correctly.
-- ⬜ 7.3 Backup/restore notes for session and data.
-- ⬜ 7.4 Runbook: banned number, worker down, OpenRouter outage.
+### Phase 7 — Hardening 🟦
+Plan: `Workflow/Phases/10-Hardening.md` (owner-approved 2026-10-24; P35 revised to be host-neutral, P36–P40).
+- 🟦 7.0 Worker on any Docker host, Railway first (Dockerfile, README "Run the worker on any host"). Built; awaiting the Railway deploy.
+- 🟦 7.1 Relink re-admission checklist (groups return on their own; migration 0015). Built; awaiting migration 0015 (live check optional, needs a spare SIM).
+- 🟦 7.2 Load test: 5 simultaneous tags in one group handled serially and correctly. Automated test passes (and fails without the per-group queue); live check awaits the owner.
+- 🟦 7.3 Backup/restore notes for session and data (`RUNBOOK.md`). Written; awaiting one backup run by the owner.
+- ✅ 7.4 Runbook: banned number, worker down, OpenRouter outage, and more (`RUNBOOK.md`).
 
 ### Future (gated, do not start without owner approval) ⏸️
 - ⏸️ **Customer mode** — requires Phase 7 ✅, a consent and retention decision, and a ban-risk review.
@@ -212,6 +214,12 @@ Decision: A "yes"/"no" counts only when it is the whole message (fixed word list
 **ADR-036 — Attachments and voice notes on dashboard posts · 2026-10-24 · Accepted (owner decisions P27–P34; scope addition)**
 Decision: A dashboard post may carry one attachment that a person uploaded (photo, video, audio, document; ≤ 16 MB) or a voice note recorded in the dashboard (≤ 5 minutes). Files live in a private Supabase Storage bucket; the browser uploads them directly with the user's session (storage policies: dashboard users only). The scheduler fetches the file before sending, so a missing file just delays the post; photos, videos and documents carry the text as caption, while audio and voice notes go first and the text follows as a second message (the post is sent once the audio is confirmed; a failed text is noted, never resent). Recordings are converted to WhatsApp's voice-note format with ffmpeg (`ffmpeg-static`, new worker dependency). WhatsApp gets 60 s to confirm media. Files are deleted daily once every post using them is cancelled or finished more than 30 days ago. The AI never creates, edits or chooses media; tag-created reminders stay text-only. Consequences: the worker install includes an ~80 MB ffmpeg binary downloaded from GitHub; storage use stays small with the cleanup; the at-most-once rules are unchanged.
 
+**ADR-037 — Worker hosting: any Docker host, Railway first · 2026-10-24 · Accepted (owner decisions P35 revised, P36, P37)**
+Context: on the owner's PC the worker kept losing Supabase and WhatsApp. Decision: the worker ships as a standard Docker image (`apps/worker/Dockerfile`: only the worker and shared package, tsx and ffmpeg included, Node as the main process). The README states what any host must provide (always on, exactly one copy, ~15 s to stop on redeploy, variables, no public port) with Railway as the first worked example (settings entered on Railway's website; no Railway file in the repository) and notes for Fly.io and a plain Docker server. The leader lock still guarantees one WhatsApp connection during any overlap. Consequences: moving hosts is a configuration change with no re-pairing; Railway's trial lasts about a month, then a paid plan is needed (runbook).
+
+**ADR-038 — Groups return on their own after a number change · 2026-10-24 · Accepted (owner decision P38; amends the "re-added → pending" rule of task 2.1 for relinks)**
+Decision: before a relink logs the old number out, the worker records each active / paused group's status (`groups.status_before_relink`, `relinked_at`, migration 0015). When the new number is added to such a group within 30 days, it returns to that status without re-approval; groups removed for any other reason, or re-added later than 30 days, still come back as pending. The Connection page lists the groups waiting for the new number. Consequences: a routine number change needs only adding the number to each group; training and settings are kept.
+
 ---
 
 ## Open Defaults to Confirm
@@ -243,6 +251,16 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-10-24 — Claude (Phase 7 built: hosting, relink re-admission, load test, runbook)
+- Plan `Phases/10-Hardening.md` approved; the owner asked not to build around Railway, so P35 became host-neutral (Dockerfile + README requirements, Railway as the first example) and the owner said "do what you recommend".
+- Done: 7.0 `apps/worker/Dockerfile`, `.dockerignore`, README "Run the worker on any host" (Railway steps, Fly.io and Docker notes). Docker isn't installed on this PC, so the image wasn't built here; the install step was simulated in a scratch folder (frozen lockfile, worker + shared only, tsx and ffmpeg present) and the start command `node --import tsx src/index.ts` was run (it lists missing variables as expected). Railway's first build is the real test.
+- 7.1 migration `0015_relink_readmission.sql`; worker `markForRelink` / `relinkStatus` / `readmit`, pairing watcher `onRelink` hook (before logout; a failure doesn't block the relink), directory re-admission within 30 days; dashboard `ReadmissionChecklist` on Connection, "Waiting for the new number" badge on Groups, audit labels (`relink_started`, `group_readmitted`). `database.types.ts` edited by hand.
+- 7.2 `assistant/loadTest.test.ts`: real pipeline, group queue and send queue; verified it fails if the per-group queue is removed.
+- 7.3–7.4 `RUNBOOK.md`. Note: `supabase db dump` needs Docker, so the runbook's main backup is `pg_dump` through the session pooler (PostgreSQL client tools 17+), with the CLI route for Docker users.
+- Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, tests (shared 96, worker 268, dashboard 144), dashboard build: all pass.
+- **Needs the owner:** apply 0015 (`pnpm supabase db push`), regenerate types; deploy the worker on Railway following the README (region near Supabase, `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=15`, the same `SESSION_ENCRYPTION_KEY`), then **stop the PC worker**; live checks in the plan's Verify section (redeploy without duplicates, five tags at once, one backup run).
+- Changed docs: `progress.md`, `architecture.md`, `data-models.md`, `api-interfaces.md`, `ui-context.md`, `Phases/10-Hardening.md`; new `RUNBOOK.md`; README.
 
 ### 2026-10-24 — Claude (Phase 6 complete)
 - Owner pushed `phase-6` to GitHub and reported "it's working well now" after the fixes (reminder requests as questions; unattached recording on save). Tasks 6.1–6.10 and Phase 6 marked ✅.
