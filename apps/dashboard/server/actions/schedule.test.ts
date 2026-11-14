@@ -43,7 +43,10 @@ function fakeClient() {
 }
 
 const access = {
-  current: { kind: "allowed", userId: "u1", role: "staff", tenantId: "t1" } as Record<string, unknown>,
+  current: { kind: "allowed", userId: "u1", role: "staff", tenantId: "t1" } as Record<
+    string,
+    unknown
+  >,
 };
 const auditDashboardAction = vi.fn(() => Promise.resolve());
 vi.mock("@/lib/supabase/server", () => ({ createClient: () => Promise.resolve(fakeClient()) }));

@@ -1,4 +1,5 @@
 import {
+  Building2,
   CalendarClock,
   GraduationCap,
   LayoutDashboard,
@@ -6,6 +7,7 @@ import {
   Settings,
   ShieldCheck,
   Smartphone,
+  UserCog,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -15,6 +17,8 @@ export type NavItem = {
   label: string;
   icon: LucideIcon;
   ownerOnly: boolean;
+  /** Shown only to platform admins (ADR-039). */
+  platformAdminOnly?: boolean;
 };
 
 /** Sidebar order and labels from ui-context.md §3. */
@@ -27,6 +31,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/connection", label: "Connection", icon: Smartphone, ownerOnly: true },
   { href: "/audit", label: "Audit log", icon: ScrollText, ownerOnly: false },
   { href: "/settings", label: "Settings", icon: Settings, ownerOnly: true },
+  { href: "/team", label: "Team", icon: UserCog, ownerOnly: true },
+  {
+    href: "/admin",
+    label: "Companies (admin)",
+    icon: Building2,
+    ownerOnly: false,
+    platformAdminOnly: true,
+  },
 ];
 
 export function isNavItemActive(item: NavItem, pathname: string): boolean {

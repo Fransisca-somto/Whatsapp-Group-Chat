@@ -11,16 +11,22 @@ import { isNavItemActive, NAV_ITEMS } from "./navItems";
 
 type SidebarNavProps = {
   role: DashboardRole;
+  isPlatformAdmin?: boolean;
   /** Counts shown next to links, by href; 0 or missing shows nothing. */
   badges?: Record<string, number>;
   /** Called after a link is chosen, so the mobile drawer can close. */
   onNavigate?: () => void;
 };
 
-/** Navigation links. Owner-only items are hidden for staff; RLS and server actions still enforce access. */
-export function SidebarNav({ role, badges, onNavigate }: SidebarNavProps) {
+/**
+ * Navigation links. Owner-only items are hidden for staff and admin-only items for everyone but
+ * platform admins; RLS and server actions still enforce access.
+ */
+export function SidebarNav({ role, isPlatformAdmin = false, badges, onNavigate }: SidebarNavProps) {
   const pathname = usePathname();
-  const items = NAV_ITEMS.filter((item) => role === "owner" || !item.ownerOnly);
+  const items = NAV_ITEMS.filter(
+    (item) => (role === "owner" || !item.ownerOnly) && (isPlatformAdmin || !item.platformAdminOnly),
+  );
 
   return (
     <nav aria-label="Main" className="flex flex-col gap-1 p-3">

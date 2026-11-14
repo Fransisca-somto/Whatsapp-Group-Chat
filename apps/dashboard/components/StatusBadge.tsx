@@ -21,6 +21,7 @@ const STATUSES = {
   conflict: { tone: "error", label: "Conflict" },
   failed: { tone: "error", label: "Failed" },
   removed: { tone: "error", label: "Removed" },
+  suspended: { tone: "error", label: "Suspended" },
   not_linked: { tone: "neutral", label: "Not linked" },
   cancelled: { tone: "neutral", label: "Cancelled" },
   skipped_late: { tone: "neutral", label: "Skipped" },

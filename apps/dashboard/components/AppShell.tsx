@@ -70,13 +70,18 @@ export function AppShell({ user, navBadges, children }: AppShellProps) {
               <Logo />
             </SheetTitle>
           </div>
-          <SidebarNav role={user.role} badges={navBadges} onNavigate={() => setDrawerOpen(false)} />
+          <SidebarNav
+            role={user.role}
+            isPlatformAdmin={user.isPlatformAdmin}
+            badges={navBadges}
+            onNavigate={() => setDrawerOpen(false)}
+          />
         </SheetContent>
       </Sheet>
 
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-60 shrink-0 overflow-y-auto border-r bg-surface md:block">
-          <SidebarNav role={user.role} badges={navBadges} />
+          <SidebarNav role={user.role} isPlatformAdmin={user.isPlatformAdmin} badges={navBadges} />
         </aside>
         <main data-page-scroll className="min-w-0 flex-1 overflow-y-auto p-4 md:p-8">
           <div className="mx-auto max-w-6xl">{children}</div>

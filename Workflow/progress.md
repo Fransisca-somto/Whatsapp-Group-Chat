@@ -10,7 +10,7 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 8 — Multi-tenant (Phase 7 live checks still open; Phase 4 ✅ except the 4.4 retention live check) |
-| **Current task** | 8.3 Admin and Team pages on branch `phase-8` (8.1–8.2 built) |
+| **Current task** | 8.4 worker: one session per tenant, on branch `phase-8` (8.1–8.3 built) |
 | **Blockers** | None |
 | **Last updated** | 2026-11-14 (Phase 8 planned and approved) |
 
@@ -101,7 +101,7 @@ Plan: `Workflow/Phases/10-Hardening.md` (owner-approved 2026-10-24; P35 revised 
 Plan: `Workflow/Phases/11-Multi-Tenant.md` (owner-approved 2026-11-14; scope change, ADR-039). Started before Phase 7's remaining live checks with the owner's approval.
 - ✅ 8.1 Schema + backfill (migration 0016, written; applied together with 8.2–8.4): `tenants`, `platform_admins`, `tenant_id` on every table, per-tenant uniques, functions and RLS; today's data becomes tenant #1.
 - ✅ 8.2 Dashboard tenant scoping (no more `id = 1`; tenant on every insert, audit row and Realtime filter).
-- ⬜ 8.3 Admin page (new owner = new tenant; suspend), Team page (owner adds staff), change password.
+- ✅ 8.3 Admin page (new owner = new tenant; suspend), Team page (owner adds staff), change password.
 - ⬜ 8.4 Worker: one process, one WhatsApp session per tenant (supervisor), repositories scoped by tenant.
 - ⬜ 8.5 Isolation test and docs.
 - **Exit criteria:** tenant #1 keeps working without re-pairing; a second tenant created from Admin links its own number; each tenant's bot, dashboard, staff and alerts see only that tenant's data.

@@ -42,7 +42,10 @@ export async function login(input: unknown): Promise<LoginResult> {
   }
   if (decideAccess(data.user.id, row).kind !== "allowed") {
     await supabase.auth.signOut();
-    return { error: "This account does not have dashboard access, or its company is suspended. Ask your owner or the platform admin." };
+    return {
+      error:
+        "This account does not have dashboard access, or its company is suspended. Ask your owner or the platform admin.",
+    };
   }
 
   redirect("/");
