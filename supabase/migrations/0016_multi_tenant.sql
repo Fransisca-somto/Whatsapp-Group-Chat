@@ -87,18 +87,17 @@ begin
   select company_name into v_name from public.company_settings limit 1;
   insert into public.tenants (name) values (coalesce(v_name, 'Company')) returning id into v_tenant;
 
+  -- User triggers are off for the stamp only: the group_messages guard and the append-only
+  -- bot_actions guard would reject it, and updated_at must not move. Foreign keys stay on.
   foreach t in array array[
     'company_settings', 'dashboard_users', 'groups', 'knowledge_entries', 'authorized_users',
     'authorized_user_groups', 'group_messages', 'scheduled_posts', 'pending_reminder_requests',
-    'ai_usage_daily', 'wa_connection', 'wa_auth_state', 'pairing_requests', 'alerts'
+    'bot_actions', 'ai_usage_daily', 'wa_connection', 'wa_auth_state', 'pairing_requests', 'alerts'
   ] loop
+    execute format('alter table public.%I disable trigger user', t);
     execute format('update public.%I set tenant_id = $1', t) using v_tenant;
+    execute format('alter table public.%I enable trigger user', t);
   end loop;
-
-  -- bot_actions is append-only (trigger); lift the guard for this one backfill.
-  alter table public.bot_actions disable trigger bot_actions_no_update_delete;
-  update public.bot_actions set tenant_id = v_tenant;
-  alter table public.bot_actions enable trigger bot_actions_no_update_delete;
 
   if not exists (select 1 from public.company_settings) then
     insert into public.company_settings (company_name, timezone, tenant_id)
