@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 7 — Hardening (Phase 0–3, 5, 6 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | Worker live on AWS EC2 (t4g.micro, Docker, from `phase-7`). Next: merge `phase-7`, switch the server to `main`, apply migration 0015, live checks (restart, five tags, one backup) |
+| **Current phase** | Phase 8 — Multi-tenant (Phase 7 live checks still open; Phase 4 ✅ except the 4.4 retention live check) |
+| **Current task** | 8.1 schema + backfill (migration 0016) on branch `phase-8` |
 | **Blockers** | None |
-| **Last updated** | 2026-10-24 (Phase 7 built, migration 0015) |
+| **Last updated** | 2026-11-14 (Phase 8 planned and approved) |
 
 ---
 
@@ -97,6 +97,15 @@ Plan: `Workflow/Phases/10-Hardening.md` (owner-approved 2026-10-24; P35 revised 
 - 🟦 7.3 Backup/restore notes for session and data (`RUNBOOK.md`). Written; awaiting one backup run by the owner.
 - ✅ 7.4 Runbook: banned number, worker down, OpenRouter outage, and more (`RUNBOOK.md`).
 
+### Phase 8 — Multi-tenant 🟦
+Plan: `Workflow/Phases/11-Multi-Tenant.md` (owner-approved 2026-11-14; scope change, ADR-039). Started before Phase 7's remaining live checks with the owner's approval.
+- 🟦 8.1 Schema + backfill (migration 0016): `tenants`, `platform_admins`, `tenant_id` on every table, per-tenant uniques, functions and RLS; today's data becomes tenant #1.
+- ⬜ 8.2 Dashboard tenant scoping (no more `id = 1`).
+- ⬜ 8.3 Admin page (new owner = new tenant; suspend), Team page (owner adds staff), change password.
+- ⬜ 8.4 Worker: one process, one WhatsApp session per tenant (supervisor), repositories scoped by tenant.
+- ⬜ 8.5 Isolation test and docs.
+- **Exit criteria:** tenant #1 keeps working without re-pairing; a second tenant created from Admin links its own number; each tenant's bot, dashboard, staff and alerts see only that tenant's data.
+
 ### Future (gated, do not start without owner approval) ⏸️
 - ⏸️ **Customer mode** — requires Phase 7 ✅, a consent and retention decision, and a ban-risk review.
 - ⏸️ Reminders that @mention specific people.
@@ -163,7 +172,7 @@ Context: pnpm resolved TypeScript 7 and `@types/node` 26 for the worker and shar
 **ADR-019 — Database conventions · 2026-10-08 · Accepted**
 Decision: One hosted Supabase project (no Docker, no rehearsal project; the empty real project is the fresh-database test). Seven migrations by concern (`0001`–`0007`). `public.current_role()` renamed to `current_dashboard_role()` (reserved keyword). Guard triggers enforce append-only `bot_actions` and restricted updates on `group_messages`, because the service-role worker bypasses RLS. Worker-only functions are executable by `service_role` only. Every RLS policy requires a non-null dashboard role, so a stray Supabase sign-up sees nothing. Consequences: `data-models.md` updated; new schema changes ship as new numbered migrations, never edits to applied ones.
 
-**ADR-020 — One WhatsApp number per deployment · 2026-10-08 · Accepted**
+**ADR-020 — One WhatsApp number per deployment · 2026-10-08 · Superseded by ADR-039 (one number per tenant)**
 Decision: The system serves one number in many groups. Single-row tables (`wa_connection`, `worker_lock`, `company_settings`) and one `wa_auth_state` encode this. A second bot number is handled by cloning the repository with its own Supabase project and worker. Consequences: full isolation between bots; multi-number in one system would need an account column across most tables and is out of scope.
 
 **ADR-021 — Tooling baseline for quality checks · 2026-10-09 · Accepted**
@@ -187,7 +196,7 @@ Context: The owner wants each group trained separately, and the project reusable
 **ADR-027 — AI provider configured from the dashboard · 2026-10-22 · Accepted (owner decision; amends ADR-024)**
 Context: A company using its own copy must not need server access to set or change its AI account. Decision: The owner enters the OpenRouter API key and picks the chat and fallback models on the Settings page. The dashboard checks the key with OpenRouter (`GET /api/v1/key`) and stores it in Supabase Vault through `set_openrouter_key()`, which re-checks the owner role inside the database; only the last four characters (`openrouter_key_hint`) are readable. Models are checked against OpenRouter's live model list and stored in `company_settings`. The worker reads the key with `get_openrouter_key()` (service role only) and the models from `company_settings`, re-reading at most every 60 s. The `OPENROUTER_*` environment variables are removed; embeddings variables stay optional until Phase 4. Consequences: a key change applies without a restart or redeploy; the dashboard never handles the key after saving it; the dashboard's service-role use is unchanged (audit only).
 
-**ADR-028 — Reusable setup for another company · 2026-10-22 · Accepted (owner decision)**
+**ADR-028 — Reusable setup for another company · 2026-10-22 · Superseded by ADR-039 (new companies are tenants)**
 Decision: Nothing company-specific lives in code. `supabase/seed.sql` is a template with placeholders, and the root `README.md` has a "Set up for a new company" checklist: new Supabase project, migrations, seed, worker and dashboard deploys, then Settings, Connection, group approval and training from the dashboard. One copy per company (ADR-020). Consequences: the real company name and owner live only in the database; re-running the template seed no longer overwrites the bot name set in Settings.
 
 **ADR-029 — Reply style · 2026-10-22 · Accepted (owner decision; answers Open Default D3)**
@@ -220,6 +229,9 @@ Context: on the owner's PC the worker kept losing Supabase and WhatsApp. Decisio
 **ADR-038 — Groups return on their own after a number change · 2026-10-24 · Accepted (owner decision P38; amends the "re-added → pending" rule of task 2.1 for relinks)**
 Decision: before a relink logs the old number out, the worker records each active / paused group's status (`groups.status_before_relink`, `relinked_at`, migration 0015). When the new number is added to such a group within 30 days, it returns to that status without re-approval; groups removed for any other reason, or re-added later than 30 days, still come back as pending. The Connection page lists the groups waiting for the new number. Consequences: a routine number change needs only adding the number to each group; training and settings are kept.
 
+**ADR-039 — Multi-tenant in one deployment · 2026-11-14 · Accepted (owner decision; supersedes ADR-020 and ADR-028, amends ADR-022, ADR-025, ADR-027)**
+Context: every login in a deployment shared its one WhatsApp number, so a new owner joined the existing company instead of getting their own. Decision: one deployment serves many tenants. A `tenants` table; `tenant_id` on every tenant-owned table (denormalized, with composite foreign keys to `groups` so a row cannot point at another tenant's group); RLS checks `tenant_id = current_tenant_id()`. A platform admin (`platform_admins`; the first owner) creates each owner and their tenant from the dashboard with a temporary password; owners add staff from a Team page; nobody signs up alone. One owner per tenant, one tenant per login. Each tenant has its own OpenRouter key (Vault secret per tenant) and its alerts go to its owner's email. Existing data becomes tenant #1. One worker process, still behind **one global leader lock**, runs one WhatsApp session per active tenant. Consequences: no new Supabase project or worker per company; all tenants share one worker and server (memory and WhatsApp ban risk grow with tenants); every repository and query must filter by tenant.
+
 ---
 
 ## Open Defaults to Confirm
@@ -251,6 +263,12 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-11-14 — Claude (Phase 8 planned: multi-tenant)
+- Owner reported that a new user just joins the same WhatsApp account; they want each owner to get their own account and add their own staff.
+- Owner decisions: one shared app (multi-tenant, scope change), platform admin creates owners, 1 owner per tenant and 1 tenant per login, keep staff (added by the owner), temporary passwords, today's data becomes tenant #1, each tenant brings its own OpenRouter key. Recorded as ADR-039; `project-overview.md` updated (§1, §2, §3, §4.0, §4.7, §5, §7, §8).
+- Plan: `Workflow/Phases/11-Multi-Tenant.md`. Branch `phase-8` from `phase-7`.
+- Next: 8.1 migration 0016.
 
 ### 2026-10-25 — Claude (worker moved to AWS EC2)
 - Railway refused the owner's sign-up for its trial; Koyeb no longer accepts deployments (joining Mistral); Google Cloud sign-up failed too. AWS accepted the account (free plan: $100 credit, 183 days).

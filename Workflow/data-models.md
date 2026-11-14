@@ -8,8 +8,13 @@
 ## 1. Entity Overview
 
 ```
-company_settings (1 row)
-dashboard_users ── auth.users
+tenants ─┬── company_settings (1 row per tenant)
+         ├── wa_connection (1 row per tenant) · wa_auth_state (key/value per tenant)
+         ├── dashboard_users ── auth.users   (1 owner + staff per tenant)
+         ├── pairing_requests · alerts · authorized_users
+         └── groups (below)
+platform_admins ── auth.users                (may create tenants)
+worker_lock (1 row, global: one worker process runs every tenant)
 
 groups ─┬── knowledge_entries          (per group training, ADR-026)
         ├── group_messages             (per group history, searchable)
@@ -18,10 +23,13 @@ groups ─┬── knowledge_entries          (per group training, ADR-026)
         ├── authorized_user_groups ── authorized_users
         ├── bot_actions                (audit)
         └── ai_usage_daily
-
-wa_connection (1 row) · wa_auth_state (key/value) · worker_lock (1 row)
-pairing_requests · alerts
 ```
+
+**Tenancy (migration 0016, ADR-039).** Every table except `tenants`, `platform_admins` and `worker_lock` has `tenant_id uuid not null` (FK → tenants on delete cascade). Rules:
+- Tables with a `group_id` also have a composite foreign key `(group_id, tenant_id) → groups (id, tenant_id)`, so a row can never point at another tenant's group; `authorized_user_groups` also has `(authorized_user_id, tenant_id) → authorized_users (id, tenant_id)`. Delete behaviour matches each table's plain `group_id` foreign key.
+- A `BEFORE INSERT` trigger `fill_tenant_id()` fills a missing `tenant_id` from the row's group, otherwise from the signed-in dashboard user (`current_tenant_id()`). Application code still passes `tenant_id` explicitly; the trigger mainly serves database functions such as `confirm_reminder_request()`.
+- A `BEFORE UPDATE` trigger `block_tenant_change()` rejects any change of `tenant_id`.
+- Today's data at the time of 0016 became **tenant #1**; its owner became the platform admin.
 
 ## 2. Extensions
 
@@ -32,10 +40,19 @@ create extension if not exists pgcrypto;
 
 ## 3. Tables
 
-### 3.1 `company_settings` (single row, `id = 1`)
+### 3.0 `tenants` (0016)
 | Column | Type | Notes |
 |---|---|---|
-| id | smallint PK | check `id = 1` |
+| id | uuid PK | |
+| name | text not null | 1–200 chars; the company name when created |
+| status | text not null default 'active' | `active`,`suspended`. A suspended tenant's users get no access (`current_dashboard_role()` and `current_tenant_id()` return null) and the worker stops its session |
+
+`platform_admins (user_id uuid PK → auth.users on delete cascade)`: logins that may create owners/tenants and suspend tenants (the Admin page). No dashboard access through RLS; read with `is_platform_admin()`.
+
+### 3.1 `company_settings` (one row per tenant)
+| Column | Type | Notes |
+|---|---|---|
+| tenant_id | uuid PK | FK → tenants (replaced the `id = 1` singleton in 0016) |
 | company_name | text not null | Used in the AI system prompt |
 | timezone | text not null | IANA name, e.g. `Africa/Lagos` |
 | owner_alert_phone | text | E.164. Unused since ADR-025; not shown in Settings |
@@ -44,14 +61,17 @@ create extension if not exists pgcrypto;
 | ai_fallback_model | text | null = no fallback (0009) |
 | openrouter_key_hint | text | Last 4 characters of the saved key, ≤ 8 chars; written only by `set_openrouter_key()` (0009) |
 
-The OpenRouter key itself is **not** in any table: it is the Vault secret `openrouter_api_key` (§5.6, ADR-027).
+The OpenRouter key itself is **not** in any table: it is the Vault secret `openrouter_api_key:<tenant_id>` (§5.6, ADR-027, ADR-039).
 
 ### 3.2 `dashboard_users`
 | Column | Type | Notes |
 |---|---|---|
-| user_id | uuid PK | FK → `auth.users.id` on delete cascade |
+| user_id | uuid PK | FK → `auth.users.id` on delete cascade. The PK means one tenant per login |
+| tenant_id | uuid not null | FK → tenants |
 | display_name | text not null | |
 | role | text not null | check in (`owner`,`staff`) |
+
+Partial unique index: one `owner` per tenant (0016). Rows are written only by the dashboard's Admin and Team server actions (service role); signed-in users can only read their own tenant's rows.
 
 ### 3.3 `knowledge_entries` (per-group training)
 | Column | Type | Notes |
@@ -74,7 +94,7 @@ Editing `title` or `content` resets `embedding_status = 'pending'` and `embeddin
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| wa_group_jid | text unique not null | e.g. `1203...@g.us` |
+| wa_group_jid | text not null | e.g. `1203...@g.us`. Unique per tenant (`tenant_id`, `wa_group_jid`): two tenants' bots may sit in the same WhatsApp group (0016) |
 | name | text not null | Synced from WhatsApp |
 | status | text not null default 'pending' | `pending`,`active`,`paused`,`removed`,`archived` |
 | reminder_permission | text not null default 'admins_only' | `admins_only`,`any_member` |
@@ -96,7 +116,7 @@ Editing `title` or `content` resets `embedding_status = 'pending'` and `embeddin
 |---|---|---|
 | id | uuid PK | |
 | display_name | text not null | |
-| phone_e164 | text unique not null | check `^\+[1-9][0-9]{7,14}$` |
+| phone_e164 | text not null | check `^\+[1-9][0-9]{7,14}$`. Unique per tenant (0016) |
 | all_groups | boolean not null default true | If false, see `authorized_user_groups` |
 | is_active | boolean not null default true | |
 
@@ -168,7 +188,7 @@ Partial unique index: one `awaiting` row per (`group_id`, `requester_jid`). A ne
 | wa_message_id | text | Set after successful send |
 | last_error | text | |
 | dismissed_at | timestamptz | Set when an admin dismisses a failed / uncertain / skipped post from Needs attention (0012, P18) |
-| attachment_path | text | Path in the `post-attachments` bucket, `<uuid>/<safe file name>` (0014); null without an attachment |
+| attachment_path | text | Path in the `post-attachments` bucket, `<tenant_id>/<uuid>/<safe file name>` since 0016 (earlier files: `<uuid>/<safe file name>`, 0014); null without an attachment |
 | attachment_kind | text | `image`,`video`,`audio`,`voice`,`document` (`voice` = recorded in the dashboard) |
 | attachment_mime | text | The file's type |
 | attachment_name | text | Original file name ("Voice note" for recordings); a document is sent under this name |
@@ -177,7 +197,7 @@ Partial unique index: one `awaiting` row per (`group_id`, `requester_jid`). A ne
 | attachment_deleted_at | timestamptz | Set by the daily cleanup when the file is deleted; the details stay for history, and the post can no longer send the file |
 
 Checks (0014): the attachment columns are all set or all empty (a voice note always has its length, nothing else does); `body` is 0–2,000 characters and may be empty only when there is an attachment.
-Indexes: (`attachment_path`) where it is set and not deleted (0014); (`status`, `due_at`) where status = 'scheduled'; unique `scheduled_posts_one_upcoming_per_series` on `(coalesce(parent_post_id, id))` where `status = 'scheduled' and recurrence_rule is not null` (a series has at most one waiting post, so it can never fork; 0012); (`due_at desc`) where status is `failed` / `delivery_uncertain` / `skipped_late` and `dismissed_at` is null (Needs attention list, 0012).
+Indexes: (`attachment_path`) where it is set and not deleted (0014); (`status`, `due_at`) where status = 'scheduled'; (`tenant_id`, `status`, `due_at`) where status = 'scheduled' (0016); unique `scheduled_posts_one_upcoming_per_series` on `(coalesce(parent_post_id, id))` where `status = 'scheduled' and recurrence_rule is not null` (a series has at most one waiting post, so it can never fork; 0012); (`due_at desc`) where status is `failed` / `delivery_uncertain` / `skipped_late` and `dismissed_at` is null (Needs attention list, 0012).
 
 **Status state machine**
 ```
@@ -199,7 +219,7 @@ A repeating series has one waiting row at a time: when a post leaves `scheduled`
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| group_id | uuid | nullable for system events |
+| group_id | uuid | nullable for system events (those still carry `tenant_id`) |
 | actor_type | text not null | `member`,`authorized_user`,`dashboard_user`,`system` |
 | actor_ref | text | phone, jid or user_id |
 | action | text not null | e.g. `answered`, `refused_unauthorized`, `reminder_requested`, `reminder_confirmed`, `reminder_expired`, `post_sent`, `post_skipped`, `relink_requested`, `group_approved`, `messages_purged` (system, actor_ref `retention`, detail `{count, retentionDays}`) |
@@ -217,10 +237,10 @@ A repeating series has one waiting row at a time: when a post leaves `scheduled`
 | est_cost_usd | numeric(10,4) not null default 0 | |
 | | | PK (`group_id`, `usage_date`) |
 
-### 3.12 `wa_connection` (single row, `id = 1`)
+### 3.12 `wa_connection` (one row per tenant)
 | Column | Type | Notes |
 |---|---|---|
-| id | smallint PK | check `id = 1` |
+| tenant_id | uuid PK | FK → tenants (replaced `id = 1` in 0016). Created with the tenant |
 | status | text not null default 'not_linked' | `not_linked`,`pairing`,`connecting`,`connected`,`reconnecting`,`logged_out`,`conflict` |
 | linked_phone_e164 | text | |
 | bot_jid | text | |
@@ -235,11 +255,12 @@ Dashboard computes **offline** as `now() - last_heartbeat_at > 60s`.
 ### 3.13 `wa_auth_state` (worker-only)
 | Column | Type | Notes |
 |---|---|---|
-| key | text PK | e.g. `creds`, `pre-key-12`, `session-...` |
+| tenant_id | uuid | PK part 1 (0016) |
+| key | text | PK part 2. e.g. `creds`, `pre-key-12`, `session-...` |
 | value_enc | text not null | base64(iv ‖ ciphertext ‖ tag), AES-256-GCM |
 | updated_at | timestamptz | |
 
-### 3.14 `worker_lock` (single row, `id = 1`)
+### 3.14 `worker_lock` (single row, `id = 1`; global, not per tenant: one worker process holds every tenant's connection)
 | Column | Type | Notes |
 |---|---|---|
 | id | smallint PK | check `id = 1` |
@@ -258,14 +279,14 @@ Dashboard computes **offline** as `now() - last_heartbeat_at > 60s`.
 | error | text | |
 | requested_by | uuid not null | FK → dashboard_users (must be owner) |
 
-Partial unique index: at most one row with status in (`requested`,`code_issued`).
+Partial unique index: at most one row **per tenant** with status in (`requested`,`code_issued`) (0016).
 
 ### 3.16 `alerts`
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
 | kind | text not null | `logged_out`,`offline`,`reconnect_failures`,`conflict` |
-| incident_key | text unique not null | Prevents duplicate alerts per incident |
+| incident_key | text not null | Unique per tenant (`tenant_id`, `incident_key`, 0016). Prevents duplicate alerts per incident |
 | sent_at | timestamptz | |
 | resolved_at | timestamptz | |
 
@@ -273,16 +294,26 @@ Partial unique index: at most one row with status in (`requested`,`code_issued`)
 
 RLS is **enabled on every table**. The worker uses the service role and bypasses RLS.
 
-| Table | Authenticated dashboard users |
+Since 0016 every policy is limited to the caller's own tenant (`tenant_id = current_tenant_id()`).
+
+| Table | Authenticated dashboard users (own tenant only) |
 |---|---|
-| `wa_auth_state`, `worker_lock` | **No access** |
-| `company_settings`, `pairing_requests` | Read: all. Write: `owner` only. |
+| `wa_auth_state`, `worker_lock`, `platform_admins` | **No access** |
+| `tenants` | Read own tenant row. No writes (Admin page uses the service role). |
+| `company_settings`, `pairing_requests` | Read: owner and staff. Write: `owner` only. |
 | `wa_connection`, `alerts`, `bot_actions`, `ai_usage_daily`, `group_messages` | Read only. |
 | `groups`, `knowledge_entries`, `authorized_users`, `authorized_user_groups`, `scheduled_posts` | Read and write (`owner`, `staff`). |
 | `pending_reminder_requests` | Read only. |
-| `dashboard_users` | Read: all. Write: `owner` only. |
+| `dashboard_users` | Read only. Writes go through the Admin / Team server actions (service role). |
 
-Helper: `public.current_dashboard_role()` returns the caller's role from `dashboard_users` (`security definer`; null if the caller is not a dashboard user). It was renamed from `current_role()` because that is a reserved SQL keyword. Every policy requires a non-null role, so a stray Supabase sign-up sees nothing. Public sign-ups should also be disabled in Supabase Auth.
+Helpers (all `security definer`, `authenticated` + `service_role`):
+- `current_dashboard_role()`: the caller's role from `dashboard_users`; null if the caller is not a dashboard user **or their tenant is suspended**. Renamed from `current_role()` (reserved keyword).
+- `current_tenant_id()`: the caller's tenant; null in the same cases. Every policy compares against it, so a stray Supabase sign-up or a suspended tenant sees nothing.
+- `is_platform_admin()`: whether the caller is in `platform_admins`.
+
+Public sign-ups stay disabled in Supabase Auth.
+
+**Storage** (`post-attachments`): upload only into the folder `<own tenant_id>/`; read and delete files in that folder, or older un-prefixed files used by the tenant's own posts (0016).
 
 Defense in depth: `anon` has no table privileges, and `authenticated` has none on `wa_auth_state` and `worker_lock`. Worker-only functions (§5) are executable by `service_role` only. The exceptions are `set_openrouter_key()` and `clear_openrouter_key()` (§5.6): `authenticated` may call them, and they check for the owner role themselves. The Vault secret is never readable through RLS.
 
@@ -316,13 +347,14 @@ limit p_limit;
 ### 5.2 `search_knowledge(p_group_id uuid, p_query_embedding, p_query_text, p_limit int default 5)`
 Same reciprocal rank fusion over the **given group's** active `knowledge_entries`. The group is required (migration 0009 replaced the earlier group-less version), so training never crosses groups.
 
-### 5.3 `claim_due_posts(p_claim_token uuid, p_limit int default 10)`
-Atomically moves due rows from `scheduled` to `sending`:
+### 5.3 `claim_due_posts(p_tenant_id uuid, p_claim_token uuid, p_limit int default 10)`
+Atomically moves **one tenant's** due rows from `scheduled` to `sending` (tenant parameter added in 0016):
 ```sql
 update scheduled_posts sp set status = 'sending', claim_token = p_claim_token, claimed_at = now()
 where sp.id in (
   select p.id from scheduled_posts p join groups g on g.id = p.group_id
-  where p.status = 'scheduled' and p.due_at <= now() and g.status = 'active'
+  where p.tenant_id = p_tenant_id
+    and p.status = 'scheduled' and p.due_at <= now() and g.status = 'active'
   order by p.due_at
   limit p_limit
   for update of p skip locked
@@ -340,13 +372,14 @@ Returns false when no row was updated. (Implemented in plpgsql with `return foun
 ### 5.5 Owner alert functions (migration `0008_offline_alert.sql`)
 - Extensions `pg_cron` and `pg_net` are enabled; Supabase Vault (preinstalled) holds the email settings.
 - `configure_alert_email(p_api_key text, p_recipients text[], p_from text) returns void`: creates or updates the Vault secrets `alert_resend_api_key`, `alert_recipients` (JSON array) and `alert_from`. `security definer`, `service_role` only. Called by the worker on every leader start.
-- `check_worker_offline() returns void`: if `wa_connection.last_heartbeat_at` is older than 5 minutes and no `offline` alert is open, inserts `alerts(kind 'offline', incident_key 'offline:<heartbeat UTC>')`, queues an email to Resend through `net.http_post` and sets `sent_at`; if the heartbeat is fresh, resolves open `offline` alerts. Does nothing if the worker has never sent a heartbeat. `security definer`, `service_role` only.
+- `check_worker_offline() returns void` (per tenant since 0016): for each **active** tenant whose number has been linked (`linked_phone_e164` set) and that has a heartbeat: if `last_heartbeat_at` is older than 5 minutes and that tenant has no open `offline` alert, inserts `alerts(tenant_id, kind 'offline', incident_key 'offline:<heartbeat UTC>')`, queues an email to **that tenant's owner** (`tenant_owner_email()`) through `net.http_post` and sets `sent_at`; if the heartbeat is fresh, resolves that tenant's open `offline` alerts. The Resend key and sender come from Vault; `alert_recipients` is no longer used for this email. `security definer`, `service_role` only.
+- `tenant_owner_email(p_tenant_id uuid) returns text`: the owner's login email (from `auth.users`). `security definer`, `service_role` only (0016).
 - `pg_cron` job `worker-offline-check` runs `check_worker_offline()` every minute. The migration unschedules any job with that name first, so re-running it never duplicates the job.
 
 ### 5.6 AI provider and usage functions (migration `0009_ai_settings_and_group_training.sql`)
-- `set_openrouter_key(p_key text) returns void`: creates or updates the Vault secret `openrouter_api_key` and sets `company_settings.openrouter_key_hint` to the last 4 characters. `security definer`; raises `42501` unless `current_dashboard_role() = 'owner'`, and rejects keys shorter than 20, longer than 500 or containing whitespace. Executable by `authenticated` (the dashboard calls it with the owner's session; the key is checked with OpenRouter first, in the server action).
-- `clear_openrouter_key() returns void`: deletes the Vault secret and clears the hint. Owner only, same check.
-- `get_openrouter_key() returns text`: the decrypted key, or null. `service_role` only (worker).
+- `set_openrouter_key(p_key text) returns void`: creates or updates the Vault secret `openrouter_api_key:<caller's tenant_id>` and sets that tenant's `company_settings.openrouter_key_hint` to the last 4 characters. `security definer`; raises `42501` unless the caller is the owner of an active tenant, and rejects keys shorter than 20, longer than 500 or containing whitespace. Executable by `authenticated` (the dashboard calls it with the owner's session; the key is checked with OpenRouter first, in the server action). Per tenant since 0016; 0016 moved the existing key to tenant #1's name.
+- `clear_openrouter_key() returns void`: deletes the caller's tenant's Vault secret and clears the hint. Owner only, same check.
+- `get_openrouter_key(p_tenant_id uuid) returns text`: that tenant's decrypted key, or null. `service_role` only (worker).
 - `record_ai_usage(p_group_id uuid, p_usage_date date, p_input_tokens int, p_output_tokens int, p_cost_usd numeric, p_replies int default 1) returns void`: one-statement upsert that adds to the day's `ai_usage_daily` row, so concurrent replies never lose a count. `p_usage_date` is the company-timezone date, computed by the caller. `service_role` only.
 
 ### 5.7 Retention (migration `0011_search_indexing_and_retention.sql`, ADR-032)
@@ -355,7 +388,7 @@ Returns false when no row was updated. (Implemented in plpgsql with `return foun
 
 ### 5.9 Post attachments (migration `0014_post_attachments.sql`, ADR-036)
 - **Storage bucket** `post-attachments`: private, 16 MB per file, allowed types only (JPG, PNG, WEBP, MP4, MP3, M4A, OGG, AAC, PDF, Word, Excel, PowerPoint, TXT, plus the browser recording formats WebM / Ogg / MP4 audio); Supabase enforces both. Re-running the migration updates the limits.
-- **Storage policies** on `storage.objects` for that bucket: `authenticated` users with a dashboard role may select, insert and delete; nobody else. The worker uses the service role.
+- **Storage policies** on `storage.objects` for that bucket: `authenticated` users with a dashboard role may select, insert and delete; nobody else. The worker uses the service role. Limited to the caller's tenant since 0016 (§4).
 - `attachments_due_for_cleanup(p_limit int default 100) returns table (attachment_path text)`: files whose every post is `cancelled`, or `sent` / `failed` / `delivery_uncertain` / `skipped_late` and last updated more than 30 days ago (so no post using them is waiting or sending), and not yet deleted. `security definer`, `service_role` only. The worker deletes them from storage and sets `attachment_deleted_at` (P30).
 
 ### 5.8 Reminder confirmation (migration `0013_tag_reminders.sql`, ADR-035)
@@ -376,3 +409,4 @@ Returns false when no row was updated. (Implemented in plpgsql with `return foun
 - `updated_at` is maintained by a `set_updated_at()` trigger on every mutable table; `group_messages` therefore also carries `updated_at`.
 - Retention (daily, in the database, §5.7): delete `group_messages` older than `groups.retention_days` when set.
 - Search functions **must** take `group_id` as a required parameter. There is no cross-group search function, by design.
+- Every worker query and every dashboard insert names its `tenant_id`; the worker (service role, no RLS) must filter every read and update by tenant (ADR-039).

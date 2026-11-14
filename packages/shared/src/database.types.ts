@@ -41,6 +41,7 @@ export type Database = {
     Tables: {
       ai_usage_daily: {
         Row: {
+          tenant_id: string
           created_at: string
           est_cost_usd: number
           group_id: string
@@ -51,6 +52,7 @@ export type Database = {
           usage_date: string
         }
         Insert: {
+          tenant_id: string
           created_at?: string
           est_cost_usd?: number
           group_id: string
@@ -61,6 +63,7 @@ export type Database = {
           usage_date: string
         }
         Update: {
+          tenant_id?: string
           created_at?: string
           est_cost_usd?: number
           group_id?: string
@@ -82,6 +85,7 @@ export type Database = {
       }
       alerts: {
         Row: {
+          tenant_id: string
           created_at: string
           id: string
           incident_key: string
@@ -91,6 +95,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          tenant_id: string
           created_at?: string
           id?: string
           incident_key: string
@@ -100,6 +105,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          tenant_id?: string
           created_at?: string
           id?: string
           incident_key?: string
@@ -112,16 +118,19 @@ export type Database = {
       }
       authorized_user_groups: {
         Row: {
+          tenant_id: string
           authorized_user_id: string
           created_at: string
           group_id: string
         }
         Insert: {
+          tenant_id: string
           authorized_user_id: string
           created_at?: string
           group_id: string
         }
         Update: {
+          tenant_id?: string
           authorized_user_id?: string
           created_at?: string
           group_id?: string
@@ -145,6 +154,7 @@ export type Database = {
       }
       authorized_users: {
         Row: {
+          tenant_id: string
           all_groups: boolean
           created_at: string
           display_name: string
@@ -154,6 +164,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          tenant_id: string
           all_groups?: boolean
           created_at?: string
           display_name: string
@@ -163,6 +174,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          tenant_id?: string
           all_groups?: boolean
           created_at?: string
           display_name?: string
@@ -175,6 +187,7 @@ export type Database = {
       }
       bot_actions: {
         Row: {
+          tenant_id: string
           action: string
           actor_ref: string | null
           actor_type: string
@@ -185,6 +198,7 @@ export type Database = {
           source_wa_message_id: string | null
         }
         Insert: {
+          tenant_id: string
           action: string
           actor_ref?: string | null
           actor_type: string
@@ -195,6 +209,7 @@ export type Database = {
           source_wa_message_id?: string | null
         }
         Update: {
+          tenant_id?: string
           action?: string
           actor_ref?: string | null
           actor_type?: string
@@ -216,36 +231,36 @@ export type Database = {
       }
       company_settings: {
         Row: {
+          tenant_id: string
           ai_chat_model: string | null
           ai_fallback_model: string | null
           bot_display_name: string
           company_name: string
           created_at: string
-          id: number
           openrouter_key_hint: string | null
           owner_alert_phone: string | null
           timezone: string
           updated_at: string
         }
         Insert: {
+          tenant_id: string
           ai_chat_model?: string | null
           ai_fallback_model?: string | null
           bot_display_name?: string
           company_name: string
           created_at?: string
-          id?: number
           openrouter_key_hint?: string | null
           owner_alert_phone?: string | null
           timezone: string
           updated_at?: string
         }
         Update: {
+          tenant_id?: string
           ai_chat_model?: string | null
           ai_fallback_model?: string | null
           bot_display_name?: string
           company_name?: string
           created_at?: string
-          id?: number
           openrouter_key_hint?: string | null
           owner_alert_phone?: string | null
           timezone?: string
@@ -255,6 +270,7 @@ export type Database = {
       }
       dashboard_users: {
         Row: {
+          tenant_id: string
           created_at: string
           display_name: string
           role: string
@@ -262,6 +278,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          tenant_id: string
           created_at?: string
           display_name: string
           role: string
@@ -269,6 +286,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          tenant_id?: string
           created_at?: string
           display_name?: string
           role?: string
@@ -279,6 +297,7 @@ export type Database = {
       }
       group_messages: {
         Row: {
+          tenant_id: string
           body: string | null
           created_at: string
           embedding: string | null
@@ -300,6 +319,7 @@ export type Database = {
           wa_message_id: string
         }
         Insert: {
+          tenant_id: string
           body?: string | null
           created_at?: string
           embedding?: string | null
@@ -321,6 +341,7 @@ export type Database = {
           wa_message_id: string
         }
         Update: {
+          tenant_id?: string
           body?: string | null
           created_at?: string
           embedding?: string | null
@@ -353,6 +374,7 @@ export type Database = {
       }
       groups: {
         Row: {
+          tenant_id: string
           ai_enabled: boolean
           allow_general_knowledge: boolean
           approved_at: string | null
@@ -372,6 +394,7 @@ export type Database = {
           wa_group_jid: string
         }
         Insert: {
+          tenant_id: string
           ai_enabled?: boolean
           allow_general_knowledge?: boolean
           approved_at?: string | null
@@ -391,6 +414,7 @@ export type Database = {
           wa_group_jid: string
         }
         Update: {
+          tenant_id?: string
           ai_enabled?: boolean
           allow_general_knowledge?: boolean
           approved_at?: string | null
@@ -421,6 +445,7 @@ export type Database = {
       }
       knowledge_entries: {
         Row: {
+          tenant_id: string
           content: string
           created_at: string
           embedding: string | null
@@ -435,6 +460,7 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          tenant_id: string
           content: string
           created_at?: string
           embedding?: string | null
@@ -449,6 +475,7 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          tenant_id?: string
           content?: string
           created_at?: string
           embedding?: string | null
@@ -481,6 +508,7 @@ export type Database = {
       }
       pairing_requests: {
         Row: {
+          tenant_id: string
           code_expires_at: string | null
           created_at: string
           error: string | null
@@ -493,6 +521,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          tenant_id: string
           code_expires_at?: string | null
           created_at?: string
           error?: string | null
@@ -505,6 +534,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          tenant_id?: string
           code_expires_at?: string | null
           created_at?: string
           error?: string | null
@@ -526,8 +556,24 @@ export type Database = {
           },
         ]
       }
+      platform_admins: {
+        Row: {
+          created_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       pending_reminder_requests: {
         Row: {
+          tenant_id: string
           confirmation_wa_message_id: string | null
           created_at: string
           draft_body: string
@@ -543,6 +589,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          tenant_id: string
           confirmation_wa_message_id?: string | null
           created_at?: string
           draft_body: string
@@ -558,6 +605,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          tenant_id?: string
           confirmation_wa_message_id?: string | null
           created_at?: string
           draft_body?: string
@@ -591,6 +639,7 @@ export type Database = {
       }
       scheduled_posts: {
         Row: {
+          tenant_id: string
           attachment_deleted_at: string | null
           attachment_kind: string | null
           attachment_mime: string | null
@@ -620,6 +669,7 @@ export type Database = {
           wa_message_id: string | null
         }
         Insert: {
+          tenant_id: string
           attachment_deleted_at?: string | null
           attachment_kind?: string | null
           attachment_mime?: string | null
@@ -649,6 +699,7 @@ export type Database = {
           wa_message_id?: string | null
         }
         Update: {
+          tenant_id?: string
           attachment_deleted_at?: string | null
           attachment_kind?: string | null
           attachment_mime?: string | null
@@ -701,20 +752,47 @@ export type Database = {
           },
         ]
       }
+      tenants: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       wa_auth_state: {
         Row: {
+          tenant_id: string
           created_at: string
           key: string
           updated_at: string
           value_enc: string
         }
         Insert: {
+          tenant_id: string
           created_at?: string
           key: string
           updated_at?: string
           value_enc: string
         }
         Update: {
+          tenant_id?: string
           created_at?: string
           key?: string
           updated_at?: string
@@ -724,10 +802,10 @@ export type Database = {
       }
       wa_connection: {
         Row: {
+          tenant_id: string
           bot_jid: string | null
           bot_lid: string | null
           created_at: string
-          id: number
           instance_id: string | null
           last_connected_at: string | null
           last_error: string | null
@@ -737,10 +815,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          tenant_id: string
           bot_jid?: string | null
           bot_lid?: string | null
           created_at?: string
-          id?: number
           instance_id?: string | null
           last_connected_at?: string | null
           last_error?: string | null
@@ -750,10 +828,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          tenant_id?: string
           bot_jid?: string | null
           bot_lid?: string | null
           created_at?: string
-          id?: number
           instance_id?: string | null
           last_connected_at?: string | null
           last_error?: string | null
@@ -802,7 +880,7 @@ export type Database = {
         }[]
       }
       claim_due_posts: {
-        Args: { p_claim_token: string; p_limit?: number }
+        Args: { p_claim_token: string; p_limit?: number; p_tenant_id: string }
         Returns: {
           attachment_deleted_at: string | null
           attachment_kind: string | null
@@ -830,6 +908,7 @@ export type Database = {
           sent_late: boolean
           status: string
           updated_at: string
+          tenant_id: string
           wa_message_id: string | null
         }[]
         SetofOptions: {
@@ -849,7 +928,9 @@ export type Database = {
         Returns: string
       }
       current_dashboard_role: { Args: never; Returns: string }
-      get_openrouter_key: { Args: never; Returns: string }
+      current_tenant_id: { Args: never; Returns: string }
+      get_openrouter_key: { Args: { p_tenant_id: string }; Returns: string }
+      is_platform_admin: { Args: never; Returns: boolean }
       purge_expired_messages: { Args: never; Returns: number }
       record_ai_usage: {
         Args: {
@@ -894,6 +975,7 @@ export type Database = {
         }[]
       }
       set_openrouter_key: { Args: { p_key: string }; Returns: undefined }
+      tenant_owner_email: { Args: { p_tenant_id: string }; Returns: string }
     }
     Enums: {
       [_ in never]: never
