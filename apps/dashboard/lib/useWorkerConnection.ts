@@ -5,8 +5,8 @@
 // also re-read every 30 s, so a missed Realtime event or a failed first read heals itself;
 // while the latest read has failed, `readFailed` is true and the badge shows "Unknown".
 //
-// The wa_connection row always exists (single row, seeded), so "no row" means this browser
-// cannot see it (e.g. its login token expired): that is a failed read, never "Offline". Realtime
+// Each tenant has exactly one wa_connection row (created with the tenant; ADR-039), so "no row"
+// means this browser cannot see it (e.g. its login token expired): that is a failed read, never "Offline". Realtime
 // events with an empty record (sent when the token is no longer accepted) are ignored and
 // trigger a fresh read instead of replacing the status.
 import { useEffect, useState } from "react";
@@ -25,7 +25,7 @@ const COLUMNS = "status, linked_phone_e164, last_heartbeat_at, last_connected_at
 const TICK_MS = 5_000;
 export const REFRESH_MS = 30_000;
 
-export function useWorkerConnection(initial: WorkerConnection | null = null) {
+export function useWorkerConnection(tenantId: string, initial: WorkerConnection | null = null) {
   const [row, setRow] = useState<WorkerConnection | null>(initial);
   const [loaded, setLoaded] = useState(initial !== null);
   const [readFailed, setReadFailed] = useState(false);
@@ -40,7 +40,7 @@ export function useWorkerConnection(initial: WorkerConnection | null = null) {
         const { data, error } = await supabase
           .from("wa_connection")
           .select(COLUMNS)
-          .eq("id", 1)
+          .eq("tenant_id", tenantId)
           .maybeSingle();
         if (!active) return;
         if (error) {
@@ -71,7 +71,12 @@ export function useWorkerConnection(initial: WorkerConnection | null = null) {
       .channel(`wa-connection-${Math.random().toString(36).slice(2)}`)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "wa_connection" },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "wa_connection",
+          filter: `tenant_id=eq.${tenantId}`,
+        },
         (payload) => {
           const next = payload.new as Partial<WorkerConnection>;
           if (typeof next.status !== "string" || !("last_heartbeat_at" in next)) {
@@ -93,7 +98,7 @@ export function useWorkerConnection(initial: WorkerConnection | null = null) {
       clearInterval(refresh);
       void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [tenantId]);
 
   return { row, loaded, readFailed, now };
 }

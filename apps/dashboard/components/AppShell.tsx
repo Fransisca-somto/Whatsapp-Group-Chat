@@ -16,7 +16,7 @@ import { UserMenu } from "./UserMenu";
 import { WorkerStatus } from "./WorkerStatus";
 
 type AppShellProps = {
-  user: { displayName: string; role: DashboardRole };
+  user: { displayName: string; role: DashboardRole; tenantId: string; isPlatformAdmin: boolean };
   /** Counts shown next to sidebar links, by href (e.g. posts needing attention). */
   navBadges?: Record<string, number>;
   children: React.ReactNode;
@@ -58,7 +58,7 @@ export function AppShell({ user, navBadges, children }: AppShellProps) {
           {pageTitle}
         </span>
         <div data-slot="worker-status">
-          <WorkerStatus />
+          <WorkerStatus tenantId={user.tenantId} />
         </div>
         <UserMenu displayName={user.displayName} role={user.role} />
       </header>

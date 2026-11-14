@@ -80,10 +80,11 @@ async function deleteIfUnused(supabase: Supabase, path: string) {
 async function prepare(
   supabase: Supabase,
   input: ScheduledPostInput,
+  tenantId: string,
 ): Promise<{ ok: true; dueAt: string; rrule: string | null } | { ok: false; error: string }> {
   const [groupResult, settingsResult] = await Promise.all([
     supabase.from("groups").select("status").eq("id", input.groupId).maybeSingle(),
-    supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
+    supabase.from("company_settings").select("timezone").eq("tenant_id", tenantId).maybeSingle(),
   ]);
   if (groupResult.error || settingsResult.error) {
     console.error("schedule: read failed", groupResult.error ?? settingsResult.error);
@@ -112,12 +113,13 @@ export async function createScheduledPost(input: unknown): Promise<ActionResult<
   const post = parsed.data;
 
   const supabase = await createClient();
-  const prepared = await prepare(supabase, post);
+  const prepared = await prepare(supabase, post, user.tenantId);
   if (!prepared.ok) return prepared;
 
   const { data, error } = await supabase
     .from("scheduled_posts")
     .insert({
+      tenant_id: user.tenantId,
       group_id: post.groupId,
       kind: post.kind,
       body: post.body,
@@ -136,6 +138,7 @@ export async function createScheduledPost(input: unknown): Promise<ActionResult<
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "post_created",
     groupId: post.groupId,
     detail: {
@@ -160,7 +163,7 @@ export async function updateScheduledPost(input: unknown): Promise<ActionResult>
   const { id, ...post } = parsed.data;
 
   const supabase = await createClient();
-  const prepared = await prepare(supabase, post);
+  const prepared = await prepare(supabase, post, user.tenantId);
   if (!prepared.ok) return prepared;
   const { data: before } = await supabase
     .from("scheduled_posts")
@@ -193,6 +196,7 @@ export async function updateScheduledPost(input: unknown): Promise<ActionResult>
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "post_updated",
     groupId: post.groupId,
     detail: {
@@ -230,6 +234,7 @@ export async function cancelScheduledPost(input: unknown): Promise<ActionResult>
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "post_cancelled",
     groupId: post.group_id,
     detail: { postId: post.id, kind: post.kind, endedSeries: post.recurrence_rule !== null },
@@ -273,6 +278,7 @@ export async function resendScheduledPost(input: unknown): Promise<ActionResult>
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "post_resent",
     groupId: post.group_id,
     detail: { postId: post.id, kind: post.kind },
@@ -306,6 +312,7 @@ export async function dismissScheduledPost(input: unknown): Promise<ActionResult
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "post_dismissed",
     groupId: post.group_id,
     detail: { postId: post.id, kind: post.kind, status: post.status },

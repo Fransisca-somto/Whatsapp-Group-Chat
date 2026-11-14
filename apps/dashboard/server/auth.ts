@@ -32,7 +32,7 @@ export async function login(input: unknown): Promise<LoginResult> {
 
   const { data: row, error: roleError } = await supabase
     .from("dashboard_users")
-    .select("display_name, role")
+    .select("display_name, role, tenant_id")
     .eq("user_id", data.user.id)
     .maybeSingle();
   if (roleError) {
@@ -42,7 +42,7 @@ export async function login(input: unknown): Promise<LoginResult> {
   }
   if (decideAccess(data.user.id, row).kind !== "allowed") {
     await supabase.auth.signOut();
-    return { error: "This account does not have dashboard access. Ask the owner to add you." };
+    return { error: "This account does not have dashboard access, or its company is suspended. Ask your owner or the platform admin." };
   }
 
   redirect("/");

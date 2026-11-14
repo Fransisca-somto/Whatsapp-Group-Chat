@@ -53,18 +53,22 @@ export async function updateCompanySettings(input: unknown): Promise<ActionResul
   const { data: updated, error } = await supabase
     .from("company_settings")
     .update({ company_name: companyName, bot_display_name: botDisplayName, timezone })
-    .eq("id", 1)
-    .select("id");
+    .eq("tenant_id", owner.tenantId)
+    .select("tenant_id");
   if (error) {
     console.error("updateCompanySettings: update failed", error);
     return { ok: false, error: "Could not save the settings. Please try again." };
   }
   if (updated.length === 0) {
-    return { ok: false, error: "Company settings are missing. Run the setup seed first." };
+    return {
+      ok: false,
+      error: "Company settings are missing. Ask the platform admin to recreate your company.",
+    };
   }
 
   await audit({
     userId: owner.userId,
+    tenantId: owner.tenantId,
     action: "company_settings_updated",
     detail: { companyName, botDisplayName, timezone },
   });
@@ -98,7 +102,12 @@ export async function saveOpenRouterKey(input: unknown): Promise<ActionResult<{ 
   }
 
   const hint = apiKey.slice(-4);
-  await audit({ userId: owner.userId, action: "ai_key_saved", detail: { hint } });
+  await audit({
+    userId: owner.userId,
+    tenantId: owner.tenantId,
+    action: "ai_key_saved",
+    detail: { hint },
+  });
   refresh();
   return { ok: true, data: { hint } };
 }
@@ -114,7 +123,7 @@ export async function removeOpenRouterKey(): Promise<ActionResult> {
     return { ok: false, error: "Could not remove the key. Please try again." };
   }
 
-  await audit({ userId: owner.userId, action: "ai_key_removed" });
+  await audit({ userId: owner.userId, tenantId: owner.tenantId, action: "ai_key_removed" });
   refresh();
   return { ok: true, data: undefined };
 }
@@ -150,18 +159,22 @@ export async function updateAiModels(input: unknown): Promise<ActionResult> {
   const { data: updated, error } = await supabase
     .from("company_settings")
     .update({ ai_chat_model: chatModel, ai_fallback_model: fallbackModel })
-    .eq("id", 1)
-    .select("id");
+    .eq("tenant_id", owner.tenantId)
+    .select("tenant_id");
   if (error) {
     console.error("updateAiModels: update failed", error);
     return { ok: false, error: "Could not save the models. Please try again." };
   }
   if (updated.length === 0) {
-    return { ok: false, error: "Company settings are missing. Run the setup seed first." };
+    return {
+      ok: false,
+      error: "Company settings are missing. Ask the platform admin to recreate your company.",
+    };
   }
 
   await audit({
     userId: owner.userId,
+    tenantId: owner.tenantId,
     action: "ai_models_updated",
     detail: { chatModel, fallbackModel },
   });

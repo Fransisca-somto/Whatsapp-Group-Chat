@@ -39,12 +39,16 @@ type Summary = {
 const SHOWN_STATUSES: GroupStatus[] = ["active", "paused", "pending", "removed"];
 
 async function TrainingOverview() {
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
   const supabase = await createClient();
   const [groupsResult, trainingResult, settingsResult] = await Promise.all([
     supabase.from("groups").select("id, name, status").in("status", SHOWN_STATUSES),
     supabase.from("knowledge_entries").select("group_id, is_active, updated_at"),
-    supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
+    supabase
+      .from("company_settings")
+      .select("timezone")
+      .eq("tenant_id", user.tenantId)
+      .maybeSingle(),
   ]);
   for (const result of [groupsResult, trainingResult]) {
     if (result.error) throw new Error(`Could not load training: ${result.error.message}`);

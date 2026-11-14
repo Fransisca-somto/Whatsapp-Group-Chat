@@ -30,7 +30,7 @@ function fakeClient() {
 }
 
 const access = {
-  current: { kind: "allowed", userId: "u1", role: "staff" } as Record<string, unknown>,
+  current: { kind: "allowed", userId: "u1", role: "staff", tenantId: "t1" } as Record<string, unknown>,
 };
 const auditDashboardAction = vi.fn(() => Promise.resolve());
 vi.mock("@/lib/supabase/server", () => ({ createClient: () => Promise.resolve(fakeClient()) }));
@@ -59,7 +59,7 @@ const stepsFor = (table: string, method: string) =>
 
 beforeEach(() => {
   calls = [];
-  access.current = { kind: "allowed", userId: "u1", role: "staff" };
+  access.current = { kind: "allowed", userId: "u1", role: "staff", tenantId: "t1" };
   auditDashboardAction.mockClear();
   results = {
     "authorized_users:insert": { data: [{ id: USER_ID }], error: null },
@@ -73,7 +73,15 @@ describe("upsertAuthorizedUser", () => {
     expect(await upsertAuthorizedUser(input)).toEqual({ ok: true, data: { id: USER_ID } });
     expect(stepsFor("authorized_users", "insert")[0]?.steps[0]).toEqual([
       "insert",
-      [{ display_name: "Ada", phone_e164: "+2348012345678", all_groups: false, is_active: true }],
+      [
+        {
+          display_name: "Ada",
+          phone_e164: "+2348012345678",
+          all_groups: false,
+          is_active: true,
+          tenant_id: "t1",
+        },
+      ],
     ]);
     // Old links cleared, then the chosen groups linked.
     expect(stepsFor("authorized_user_groups", "delete")[0]?.steps).toContainEqual([
@@ -84,13 +92,13 @@ describe("upsertAuthorizedUser", () => {
       "insert",
       [
         [
-          { authorized_user_id: USER_ID, group_id: GROUP_A },
-          { authorized_user_id: USER_ID, group_id: GROUP_B },
+          { tenant_id: "t1", authorized_user_id: USER_ID, group_id: GROUP_A },
+          { tenant_id: "t1", authorized_user_id: USER_ID, group_id: GROUP_B },
         ],
       ],
     ]);
     expect(auditDashboardAction).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "authorized_user_added" }),
+      expect.objectContaining({ action: "authorized_user_added", tenantId: "t1" }),
     );
   });
 

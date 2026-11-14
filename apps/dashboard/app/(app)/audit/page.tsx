@@ -30,7 +30,7 @@ const first = (value: string | string[] | undefined) => (Array.isArray(value) ? 
 
 async function AuditContent({ searchParams }: Props) {
   const params = await searchParams;
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
   const parsed = auditFilterSchema.safeParse({
     groupId: first(params.group) ?? null,
     action: first(params.action) ?? null,
@@ -50,7 +50,11 @@ async function AuditContent({ searchParams }: Props) {
     query,
     supabase.from("groups").select("id, name").order("name"),
     supabase.from("dashboard_users").select("user_id, display_name"),
-    supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
+    supabase
+      .from("company_settings")
+      .select("timezone")
+      .eq("tenant_id", user.tenantId)
+      .maybeSingle(),
   ]);
   for (const result of [rowsResult, groupsResult, usersResult]) {
     if (result.error) throw new Error(`Could not load the audit log: ${result.error.message}`);

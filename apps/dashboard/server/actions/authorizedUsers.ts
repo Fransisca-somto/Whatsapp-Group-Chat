@@ -54,7 +54,10 @@ export async function upsertAuthorizedUser(input: unknown): Promise<ActionResult
   };
   const { data, error } = id
     ? await supabase.from("authorized_users").update(values).eq("id", id).select("id")
-    : await supabase.from("authorized_users").insert(values).select("id");
+    : await supabase
+        .from("authorized_users")
+        .insert({ ...values, tenant_id: user.tenantId })
+        .select("id");
   if (error?.code === UNIQUE_VIOLATION) {
     return { ok: false, error: "This number is already on the list." };
   }
@@ -73,9 +76,13 @@ export async function upsertAuthorizedUser(input: unknown): Promise<ActionResult
   const links = allGroups ? [] : [...new Set(groupIds)];
   const { error: linkError } =
     links.length > 0
-      ? await supabase
-          .from("authorized_user_groups")
-          .insert(links.map((groupId) => ({ authorized_user_id: saved.id, group_id: groupId })))
+      ? await supabase.from("authorized_user_groups").insert(
+          links.map((groupId) => ({
+            tenant_id: user.tenantId,
+            authorized_user_id: saved.id,
+            group_id: groupId,
+          })),
+        )
       : { error: null };
   if (clearError || linkError) {
     console.error("upsertAuthorizedUser: group links failed", clearError ?? linkError);
@@ -84,6 +91,7 @@ export async function upsertAuthorizedUser(input: unknown): Promise<ActionResult
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: id ? "authorized_user_updated" : "authorized_user_added",
     detail: {
       authorizedUserId: saved.id,
@@ -119,6 +127,7 @@ export async function setAuthorizedUserActive(input: unknown): Promise<ActionRes
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "authorized_user_updated",
     detail: { authorizedUserId: row.id, name: row.display_name, isActive: parsed.data.isActive },
   });
@@ -149,6 +158,7 @@ export async function deleteAuthorizedUser(input: unknown): Promise<ActionResult
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "authorized_user_deleted",
     detail: { authorizedUserId: row.id, name: row.display_name },
   });

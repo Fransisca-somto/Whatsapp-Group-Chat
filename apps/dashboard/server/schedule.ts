@@ -17,7 +17,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * The three lists on `/schedule` (and the group page's Scheduled tab), read through RLS.
  * Upcoming: soonest first. Needs attention and History: newest first.
  */
-export async function loadSchedule(groupId: string | null): Promise<{
+export async function loadSchedule(
+  tenantId: string,
+  groupId: string | null,
+): Promise<{
   groupFilter: string | null;
   filterGroups: { id: string; name: string }[];
   groups: SchedulableGroup[];
@@ -28,12 +31,20 @@ export async function loadSchedule(groupId: string | null): Promise<{
   const groupFilter = groupId && UUID.test(groupId) ? groupId : null;
 
   const posts = () => {
-    const query = supabase.from("scheduled_posts").select(SCHEDULED_POST_COLUMNS);
+    const query = supabase
+      .from("scheduled_posts")
+      .select(SCHEDULED_POST_COLUMNS)
+      .eq("tenant_id", tenantId);
     return groupFilter ? query.eq("group_id", groupFilter) : query;
   };
   const [groupsResult, settingsResult, upcoming, attention, history] = await Promise.all([
-    supabase.from("groups").select("id, name, status").neq("status", "pending").order("name"),
-    supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
+    supabase
+      .from("groups")
+      .select("id, name, status")
+      .eq("tenant_id", tenantId)
+      .neq("status", "pending")
+      .order("name"),
+    supabase.from("company_settings").select("timezone").eq("tenant_id", tenantId).maybeSingle(),
     posts()
       .in("status", ["scheduled", "sending"])
       .order("due_at", { ascending: true })
@@ -67,21 +78,25 @@ export async function loadSchedule(groupId: string | null): Promise<{
 }
 
 /** Overview: the next few posts and how many need attention. */
-export async function loadScheduleSummary(limit = 5): Promise<{
+export async function loadScheduleSummary(
+  tenantId: string,
+  limit = 5,
+): Promise<{
   timeZone: string;
   next: ScheduledPostView[];
   attentionCount: number;
 }> {
   const supabase = await createClient();
   const [settingsResult, next, attention] = await Promise.all([
-    supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
+    supabase.from("company_settings").select("timezone").eq("tenant_id", tenantId).maybeSingle(),
     supabase
       .from("scheduled_posts")
       .select(SCHEDULED_POST_COLUMNS)
+      .eq("tenant_id", tenantId)
       .eq("status", "scheduled")
       .order("due_at", { ascending: true })
       .limit(limit),
-    countNeedingAttention(),
+    countNeedingAttention(tenantId),
   ]);
   if (next.error) throw new Error(`Could not load the schedule: ${next.error.message}`);
   return {
@@ -92,11 +107,12 @@ export async function loadScheduleSummary(limit = 5): Promise<{
 }
 
 /** For the sidebar badge and the Overview; 0 if it can't be read. */
-export async function countNeedingAttention(): Promise<number> {
+export async function countNeedingAttention(tenantId: string): Promise<number> {
   const supabase = await createClient();
   const { count, error } = await supabase
     .from("scheduled_posts")
     .select("id", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
     .in("status", [...ATTENTION_STATUSES])
     .is("dismissed_at", null);
   if (error) {

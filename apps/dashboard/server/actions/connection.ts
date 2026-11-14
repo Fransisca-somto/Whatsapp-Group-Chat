@@ -31,6 +31,7 @@ export async function requestPairing(input: unknown): Promise<ActionResult<{ id:
   const { data, error } = await supabase
     .from("pairing_requests")
     .insert({
+      tenant_id: owner.tenantId,
       kind: parsed.data.kind,
       phone_e164: parsed.data.phoneE164,
       requested_by: owner.userId,
@@ -48,6 +49,7 @@ export async function requestPairing(input: unknown): Promise<ActionResult<{ id:
   try {
     await auditDashboardAction({
       userId: owner.userId,
+      tenantId: owner.tenantId,
       action: parsed.data.kind === "relink" ? "relink_requested" : "pairing_requested",
       detail: { pairingRequestId: data.id, phoneE164: parsed.data.phoneE164 },
     });
@@ -70,6 +72,7 @@ export async function cancelPairing(input: unknown): Promise<ActionResult> {
     .from("pairing_requests")
     .update({ status: "cancelled" })
     .eq("id", parsed.data.requestId)
+    .eq("tenant_id", owner.tenantId)
     .in("status", ["requested", "code_issued"]);
   if (error) {
     console.error("cancelPairing: update failed", error);

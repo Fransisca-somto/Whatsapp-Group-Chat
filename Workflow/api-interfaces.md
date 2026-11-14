@@ -55,6 +55,8 @@
 
 All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audit.ts` (`auditDashboardAction`); if the audit write fails after the main write succeeded, the action still returns `ok` and logs the error. Each one: (1) gets the session, (2) checks role, (3) validates input with zod, (4) writes, (5) writes a `bot_actions` row for audit where listed, (6) returns `{ ok: true, data } | { ok: false, error: string }`.
 
+**Tenancy (ADR-039, task 8.2).** `getAccessDecision()` returns the user's `tenantId` and `isPlatformAdmin`. Every insert sets `tenant_id` to the user's tenant, every `company_settings` / `wa_connection` read or update filters `tenant_id` (no more `id = 1`), and every audit row carries `tenantId`. Other reads rely on RLS, which only returns the user's tenant. The dashboard's Realtime subscriptions (`wa_connection`, `pairing_requests`) filter `tenant_id=eq.<id>`. Attachments upload to `<tenant id>/<uuid>/<file>`; the browser reads its tenant with `current_tenant_id()`. A suspended tenant's users cannot read their own `dashboard_users` row, so they are signed out as "no access".
+
 | Action | Role | Input schema | Audit |
 |---|---|---|---|
 | `changeGroupStatus` | owner, staff | `ChangeGroupStatusInput { groupId, action: 'approve'\|'pause'\|'resume'\|'archive' }`. Allowed only along `groupActionTarget()` (shared `groups.ts`); the update is conditional on the status read (`eq('status', current)`), so concurrent clicks cannot skip a step. Approve also sets `approved_by` / `approved_at`. Replaces the earlier `approveGroup` + `setGroupStatus`. | ✅ `group_approved` / `group_paused` / `group_resumed` / `group_archived` (detail `from`, `to`) |

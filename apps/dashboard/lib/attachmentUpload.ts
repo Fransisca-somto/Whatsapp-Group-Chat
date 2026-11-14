@@ -1,5 +1,6 @@
 // Uploads straight from the browser to the private post-attachments bucket with the signed-in
-// user's session (storage policies allow dashboard users only). Large files never pass through
+// user's session. Files go under "<tenant id>/", the only folder the storage policies let a
+// tenant's users upload to (ADR-039). Large files never pass through
 // the dashboard server, so its request-size limit does not apply (Phase 6, 6.7).
 import {
   ATTACHMENT_BUCKET,
@@ -29,9 +30,15 @@ async function upload(
   name: string,
   mime: string,
 ): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
-  const path = `${crypto.randomUUID()}/${storageFileName(name)}`;
-  const { error } = await createClient()
-    .storage.from(ATTACHMENT_BUCKET)
+  const supabase = createClient();
+  const { data: tenantId, error: tenantError } = await supabase.rpc("current_tenant_id");
+  if (tenantError || !tenantId) {
+    console.error("attachment upload: no tenant", tenantError);
+    return { ok: false, error: "The upload failed. Reload the page and try again." };
+  }
+  const path = `${tenantId}/${crypto.randomUUID()}/${storageFileName(name)}`;
+  const { error } = await supabase.storage
+    .from(ATTACHMENT_BUCKET)
     .upload(path, data, { contentType: baseMime(mime), upsert: false });
   if (error) {
     console.error("attachment upload failed", error);

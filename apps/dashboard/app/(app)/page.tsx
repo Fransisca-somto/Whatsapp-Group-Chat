@@ -38,7 +38,7 @@ async function AiSetupNotice() {
   const { data, error } = await supabase
     .from("company_settings")
     .select("openrouter_key_hint, ai_chat_model")
-    .eq("id", 1)
+    .eq("tenant_id", user.tenantId)
     .maybeSingle();
   if (error) {
     console.error("AiSetupNotice: read failed", error);
@@ -71,8 +71,8 @@ async function AiSetupNotice() {
 
 /** The next 5 posts and how many need attention (ui-context.md §4 Overview, P20). */
 async function UpcomingPosts() {
-  await requireCurrentUser();
-  const { timeZone, next, attentionCount } = await loadScheduleSummary();
+  const user = await requireCurrentUser();
+  const { timeZone, next, attentionCount } = await loadScheduleSummary(user.tenantId);
 
   return (
     <section aria-labelledby="upcoming-title" className="rounded-xl border bg-surface p-6">

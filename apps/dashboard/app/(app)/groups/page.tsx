@@ -57,13 +57,17 @@ const STATUS_ORDER: Record<GroupStatus, number> = {
 };
 
 async function GroupsContent() {
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
   const supabase = await createClient();
   const [groupsResult, settingsResult, trainingResult] = await Promise.all([
     supabase
       .from("groups")
       .select("id, name, status, reminder_permission, last_activity_at, relinked_at"),
-    supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
+    supabase
+      .from("company_settings")
+      .select("timezone")
+      .eq("tenant_id", user.tenantId)
+      .maybeSingle(),
     supabase.from("knowledge_entries").select("group_id").eq("is_active", true),
   ]);
   if (groupsResult.error) throw new Error(`Could not load groups: ${groupsResult.error.message}`);

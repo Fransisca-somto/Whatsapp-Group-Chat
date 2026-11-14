@@ -43,7 +43,7 @@ function fakeClient() {
 }
 
 const access = {
-  current: { kind: "allowed", userId: "u1", role: "staff" } as Record<string, unknown>,
+  current: { kind: "allowed", userId: "u1", role: "staff", tenantId: "t1" } as Record<string, unknown>,
 };
 const auditDashboardAction = vi.fn(() => Promise.resolve());
 vi.mock("@/lib/supabase/server", () => ({ createClient: () => Promise.resolve(fakeClient()) }));
@@ -83,7 +83,7 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   calls = [];
   removed = [];
-  access.current = { kind: "allowed", userId: "u1", role: "staff" };
+  access.current = { kind: "allowed", userId: "u1", role: "staff", tenantId: "t1" };
   auditDashboardAction.mockClear();
   results = {
     "groups:select": { data: { status: "active" }, error: null },
@@ -110,6 +110,7 @@ describe("createScheduledPost", () => {
     expect(result).toEqual({ ok: true, data: { id: POST_ID } });
     expect(argOf("scheduled_posts", "insert")).toEqual([
       {
+        tenant_id: "t1",
         group_id: GROUP_ID,
         kind: "announcement",
         body: "Office closes at 3pm",
@@ -126,7 +127,7 @@ describe("createScheduledPost", () => {
       },
     ]);
     expect(auditDashboardAction).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "post_created", groupId: GROUP_ID }),
+      expect.objectContaining({ action: "post_created", groupId: GROUP_ID, tenantId: "t1" }),
     );
   });
 

@@ -55,7 +55,7 @@ describe("useWorkerConnection", () => {
   it("reports a failed read instead of an empty row, then heals on the next refresh", async () => {
     reads.push(() => Promise.resolve({ data: null, error: { message: "fetch failed" } }));
     reads.push(() => Promise.resolve({ data: ROW, error: null }));
-    const { result } = renderHook(() => useWorkerConnection());
+    const { result } = renderHook(() => useWorkerConnection("tenant-1"));
     await flush();
     expect(result.current).toMatchObject({ loaded: true, readFailed: true, row: null });
 
@@ -69,7 +69,7 @@ describe("useWorkerConnection", () => {
 
   it("treats an invisible row as a failed read, not as offline", async () => {
     reads.push(() => Promise.resolve({ data: null, error: null }));
-    const { result } = renderHook(() => useWorkerConnection());
+    const { result } = renderHook(() => useWorkerConnection("tenant-1"));
     await flush();
     expect(result.current).toMatchObject({ readFailed: true, row: null });
   });
@@ -77,7 +77,7 @@ describe("useWorkerConnection", () => {
   it("ignores an empty Realtime record and re-reads instead", async () => {
     reads.push(() => Promise.resolve({ data: ROW, error: null }));
     reads.push(() => Promise.resolve({ data: { ...ROW, status: "reconnecting" }, error: null }));
-    const { result } = renderHook(() => useWorkerConnection());
+    const { result } = renderHook(() => useWorkerConnection("tenant-1"));
     await flush();
     expect(result.current.row).toEqual(ROW);
 
@@ -92,7 +92,7 @@ describe("useWorkerConnection", () => {
 
   it("treats a thrown network error as a failed read", async () => {
     reads.push(() => Promise.reject(new TypeError("fetch failed")));
-    const { result } = renderHook(() => useWorkerConnection());
+    const { result } = renderHook(() => useWorkerConnection("tenant-1"));
     await flush();
     expect(result.current.readFailed).toBe(true);
   });
