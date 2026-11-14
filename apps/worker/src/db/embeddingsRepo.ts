@@ -1,5 +1,6 @@
 // Rows waiting to be indexed, and the results of indexing (data-models.md §3.3, §3.7; ADR-031).
-// Only the leader runs the indexing job, so rows are read, not locked.
+// Only the leader runs the indexing job, so rows are read, not locked. One job per tenant
+// (ADR-039): every read and write is limited to that tenant.
 import type { MessageType } from "@soft-agent-support/shared";
 
 import { toVectorLiteral } from "../ai/embeddings.ts";
@@ -42,12 +43,13 @@ export type EmbeddingsStore = {
   ): Promise<void>;
 };
 
-export function createEmbeddingsRepo(db: ServiceClient): EmbeddingsStore {
+export function createEmbeddingsRepo(db: ServiceClient, tenantId: string): EmbeddingsStore {
   return {
     async pendingTraining(limit) {
       const { data, error } = await db
         .from("knowledge_entries")
         .select("id, group_id, title, content, embedding_attempts, updated_at")
+        .eq("tenant_id", tenantId)
         .eq("embedding_status", "pending")
         .order("updated_at", { ascending: true })
         .limit(limit);
@@ -66,6 +68,7 @@ export function createEmbeddingsRepo(db: ServiceClient): EmbeddingsStore {
       const { data, error } = await db
         .from("group_messages")
         .select("id, group_id, is_from_bot, message_type, body, embedding_attempts")
+        .eq("tenant_id", tenantId)
         .eq("embedding_status", "pending")
         .order("sent_at", { ascending: false })
         .limit(limit);
@@ -85,6 +88,7 @@ export function createEmbeddingsRepo(db: ServiceClient): EmbeddingsStore {
         .from("knowledge_entries")
         .update({ embedding: toVectorLiteral(embedding), embedding_status: "done" })
         .eq("id", entry.id)
+        .eq("tenant_id", tenantId)
         .eq("updated_at", entry.updatedAt);
       if (error) throw new Error(`knowledge_entries update failed: ${error.message}`);
     },
@@ -93,7 +97,8 @@ export function createEmbeddingsRepo(db: ServiceClient): EmbeddingsStore {
       const { error } = await db
         .from("group_messages")
         .update({ embedding: toVectorLiteral(embedding), embedding_status: "done" })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("tenant_id", tenantId);
       if (error) throw new Error(`group_messages update failed: ${error.message}`);
     },
 
@@ -102,6 +107,7 @@ export function createEmbeddingsRepo(db: ServiceClient): EmbeddingsStore {
       const { error } = await db
         .from("group_messages")
         .update({ embedding_status: "skipped" })
+        .eq("tenant_id", tenantId)
         .in("id", messageIds);
       if (error) throw new Error(`group_messages update failed: ${error.message}`);
     },
@@ -120,8 +126,16 @@ export function createEmbeddingsRepo(db: ServiceClient): EmbeddingsStore {
             : { embedding_attempts: attempts };
         const { error } =
           table === "knowledge_entries"
-            ? await db.from("knowledge_entries").update(update).in("id", ids)
-            : await db.from("group_messages").update(update).in("id", ids);
+            ? await db
+                .from("knowledge_entries")
+                .update(update)
+                .eq("tenant_id", tenantId)
+                .in("id", ids)
+            : await db
+                .from("group_messages")
+                .update(update)
+                .eq("tenant_id", tenantId)
+                .in("id", ids);
         if (error) throw new Error(`${table} update failed: ${error.message}`);
       }
     },

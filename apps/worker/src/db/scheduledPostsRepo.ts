@@ -105,12 +105,13 @@ function toPost(row: Row): ScheduledPost {
   };
 }
 
-export function createScheduledPostsRepo(db: ServiceClient): ScheduledPostStore {
+export function createScheduledPostsRepo(db: ServiceClient, tenantId: string): ScheduledPostStore {
   async function finish(id: string, token: string, values: PostUpdate) {
     const { error } = await db
       .from("scheduled_posts")
       .update(values)
       .eq("id", id)
+      .eq("tenant_id", tenantId)
       .eq("claim_token", token)
       .eq("status", "sending");
     if (error) throw new Error(`scheduled_posts update failed: ${error.message}`);
@@ -121,6 +122,7 @@ export function createScheduledPostsRepo(db: ServiceClient): ScheduledPostStore 
       const { data, error } = await db
         .from("scheduled_posts")
         .update({ status: "delivery_uncertain", last_error: reason })
+        .eq("tenant_id", tenantId)
         .eq("status", "sending")
         .select(POST_COLUMNS);
       if (error) throw new Error(`scheduled_posts update failed: ${error.message}`);
@@ -131,12 +133,14 @@ export function createScheduledPostsRepo(db: ServiceClient): ScheduledPostStore 
       const { data: groups, error: groupsError } = await db
         .from("groups")
         .select("id")
+        .eq("tenant_id", tenantId)
         .eq("status", "active");
       if (groupsError) throw new Error(`groups read failed: ${groupsError.message}`);
       if (groups.length === 0) return [];
       const { data, error } = await db
         .from("scheduled_posts")
         .update({ status: "skipped_late" })
+        .eq("tenant_id", tenantId)
         .eq("status", "scheduled")
         .lt("due_at", cutoff.toISOString())
         .in(
@@ -150,6 +154,7 @@ export function createScheduledPostsRepo(db: ServiceClient): ScheduledPostStore 
 
     async claim(token, limit) {
       const { data, error } = await db.rpc("claim_due_posts", {
+        p_tenant_id: tenantId,
         p_claim_token: token,
         p_limit: limit,
       });
@@ -159,7 +164,11 @@ export function createScheduledPostsRepo(db: ServiceClient): ScheduledPostStore 
 
     async groupJids(groupIds) {
       if (groupIds.length === 0) return new Map();
-      const { data, error } = await db.from("groups").select("id, wa_group_jid").in("id", groupIds);
+      const { data, error } = await db
+        .from("groups")
+        .select("id, wa_group_jid")
+        .eq("tenant_id", tenantId)
+        .in("id", groupIds);
       if (error) throw new Error(`groups read failed: ${error.message}`);
       return new Map(data.map((g) => [g.id, g.wa_group_jid]));
     },
@@ -184,6 +193,7 @@ export function createScheduledPostsRepo(db: ServiceClient): ScheduledPostStore 
         .from("scheduled_posts")
         .update({ last_error: "text not sent" })
         .eq("id", id)
+        .eq("tenant_id", tenantId)
         .eq("status", "sent");
       if (error) throw new Error(`scheduled_posts update failed: ${error.message}`);
     },
@@ -193,6 +203,7 @@ export function createScheduledPostsRepo(db: ServiceClient): ScheduledPostStore 
 
     async insertNext(post, dueAt) {
       const { error } = await db.from("scheduled_posts").insert({
+        tenant_id: tenantId,
         group_id: post.groupId,
         kind: post.kind,
         body: post.body,

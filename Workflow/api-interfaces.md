@@ -282,18 +282,20 @@ ADR-025. Email replaces the earlier Cloud API WhatsApp alert; the Cloud API is n
 
 **Sending:** `POST https://api.resend.com/emails` with `Authorization: Bearer $RESEND_API_KEY`, body `{ from, to: string[], subject, text }`. Worker: `health/email.ts` (10 s timeout, one retry on network error / 429 / 5xx, no retry on other 4xx).
 
-**Incidents:** one email per incident. An incident is an unresolved `alerts` row of that kind; `incident_key` = `<kind>:<ISO time>`.
+**Recipients (ADR-039):** every incident belongs to one tenant and goes to **that tenant's owner** (their login email, `tenant_owner_email()`). The worker falls back to `OWNER_ALERT_EMAILS` (the platform list) only when the owner's email cannot be read. Resend's test sender only delivers to the Resend account's own address, so other owners receive alerts only once a domain is verified in Resend.
+
+**Incidents:** one email per incident, per tenant. An incident is an unresolved `alerts` row of that kind for that tenant; `incident_key` = `<kind>:<ISO time>`.
 
 | Kind | Raised by | When | Resolved when |
 |---|---|---|---|
 | `logged_out` | worker (`health/alerts.ts`) | logout / bad session / forbidden / multi-device mismatch | the bot connects again |
 | `conflict` | worker | connection replaced by another device | the bot connects again |
 | `reconnect_failures` | worker | 10th consecutive failed reconnect | the bot connects again |
-| `offline` | database (`check_worker_offline()`, every minute) | `last_heartbeat_at` older than 5 min (never if the worker has never run) | heartbeat fresh again, or a leader session starts |
+| `offline` | database (`check_worker_offline()`, every minute) | that tenant's `last_heartbeat_at` older than 5 min (only active tenants whose number was linked) | heartbeat fresh again, or that tenant's session starts |
 
 **Email text:** subject `[Group Assistant] <what happened>`; body says what happened, when (company timezone), the detail, what to do, and a dashboard link when `DASHBOARD_URL` is set.
 
-**Database settings:** on every leader start the worker calls `configure_alert_email(api_key, recipients, from)`, which stores them in Supabase Vault (`alert_resend_api_key`, `alert_recipients`, `alert_from`). The database job reads them from `vault.decrypted_secrets`; nothing secret is in migrations. `pg_net` sends asynchronously, so `sent_at` on an `offline` alert means "queued"; Resend's dashboard shows delivery.
+**Database settings:** on every leader start the worker calls `configure_alert_email(api_key, recipients, from)`, which stores them in Supabase Vault (`alert_resend_api_key`, `alert_recipients`, `alert_from`). Since 0016 the offline email goes to each tenant's owner, so `alert_recipients` is no longer read. The database job reads them from `vault.decrypted_secrets`; nothing secret is in migrations. `pg_net` sends asynchronously, so `sent_at` on an `offline` alert means "queued"; Resend's dashboard shows delivery.
 
 ---
 

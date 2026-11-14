@@ -29,12 +29,13 @@ export type PairingStore = {
 
 const OPEN_STATUSES = ["requested", "code_issued"] as const;
 
-export function createPairingRepo(db: ServiceClient): PairingStore {
+export function createPairingRepo(db: ServiceClient, tenantId: string): PairingStore {
   async function update(id: string, patch: TablesUpdate<"pairing_requests">) {
     const { error } = await db
       .from("pairing_requests")
       .update(patch)
       .eq("id", id)
+      .eq("tenant_id", tenantId)
       .in("status", OPEN_STATUSES);
     if (error) throw new Error(`pairing_requests update failed: ${error.message}`);
   }
@@ -44,6 +45,7 @@ export function createPairingRepo(db: ServiceClient): PairingStore {
       const { data, error } = await db
         .from("pairing_requests")
         .select("id, kind, phone_e164, status")
+        .eq("tenant_id", tenantId)
         .eq("status", "requested")
         .order("created_at")
         .limit(1)
@@ -63,6 +65,7 @@ export function createPairingRepo(db: ServiceClient): PairingStore {
         .from("pairing_requests")
         .select("status")
         .eq("id", id)
+        .eq("tenant_id", tenantId)
         .maybeSingle();
       if (error) throw new Error(`pairing_requests read failed: ${error.message}`);
       return (data?.status as PairingRequestStatus | undefined) ?? null;
@@ -84,6 +87,7 @@ export function createPairingRepo(db: ServiceClient): PairingStore {
       const { data, error } = await db
         .from("pairing_requests")
         .update({ status: "expired", error: "worker restarted before pairing finished" })
+        .eq("tenant_id", tenantId)
         .eq("status", "code_issued")
         .select("id");
       if (error) throw new Error(`pairing_requests expire failed: ${error.message}`);
@@ -92,10 +96,15 @@ export function createPairingRepo(db: ServiceClient): PairingStore {
 
     onInsert(callback) {
       const channel = db
-        .channel("worker-pairing-requests")
+        .channel(`worker-pairing-requests-${tenantId}`)
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "pairing_requests" },
+          {
+            event: "INSERT",
+            schema: "public",
+            table: "pairing_requests",
+            filter: `tenant_id=eq.${tenantId}`,
+          },
           () => callback(),
         )
         .subscribe();

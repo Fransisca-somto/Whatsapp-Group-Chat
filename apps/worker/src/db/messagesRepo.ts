@@ -38,13 +38,14 @@ export type MessageStore = {
   setHandledStatus(groupId: string, waMessageId: string, status: HandledStatus): Promise<void>;
 };
 
-export function createMessagesRepo(db: ServiceClient): MessageStore {
+export function createMessagesRepo(db: ServiceClient, tenantId: string): MessageStore {
   return {
     async insertIfNew(m) {
       const { data, error } = await db
         .from("group_messages")
         .upsert(
           {
+            tenant_id: tenantId,
             group_id: m.groupId,
             wa_message_id: m.waMessageId,
             sender_jid: m.senderJid,
@@ -69,6 +70,7 @@ export function createMessagesRepo(db: ServiceClient): MessageStore {
       const { data, error } = await db
         .from("group_messages")
         .select("sender_name, sender_phone_e164, is_from_bot, message_type, body, sent_at")
+        .eq("tenant_id", tenantId)
         .eq("group_id", groupId)
         .lt("sent_at", before.toISOString())
         .order("sent_at", { ascending: false })
@@ -88,6 +90,7 @@ export function createMessagesRepo(db: ServiceClient): MessageStore {
       const { error } = await db
         .from("group_messages")
         .update({ handled_status: status })
+        .eq("tenant_id", tenantId)
         .eq("group_id", groupId)
         .eq("wa_message_id", waMessageId);
       if (error) throw new Error(`group_messages update failed: ${error.message}`);

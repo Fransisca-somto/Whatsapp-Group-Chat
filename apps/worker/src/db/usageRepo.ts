@@ -18,7 +18,7 @@ export type UsageStore = {
   repliesOn(groupId: string, usageDate: string): Promise<number>;
 };
 
-export function createUsageRepo(db: ServiceClient): UsageStore {
+export function createUsageRepo(db: ServiceClient, tenantId: string): UsageStore {
   return {
     async record(entry) {
       const { error } = await db.rpc("record_ai_usage", {
@@ -36,6 +36,7 @@ export function createUsageRepo(db: ServiceClient): UsageStore {
       const { data, error } = await db
         .from("ai_usage_daily")
         .select("reply_count")
+        .eq("tenant_id", tenantId)
         .eq("group_id", groupId)
         .eq("usage_date", usageDate)
         .maybeSingle();

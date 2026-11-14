@@ -44,11 +44,12 @@ const toRecord = (row: Row): GroupRecord => ({
   status: row.status as GroupStatus,
 });
 
-export function createGroupsRepo(db: ServiceClient): GroupStore {
+export function createGroupsRepo(db: ServiceClient, tenantId: string): GroupStore {
   async function findByJid(jid: string) {
     const { data, error } = await db
       .from("groups")
       .select(COLUMNS)
+      .eq("tenant_id", tenantId)
       .eq("wa_group_jid", jid)
       .maybeSingle();
     if (error) throw new Error(`groups read failed: ${error.message}`);
@@ -56,13 +57,13 @@ export function createGroupsRepo(db: ServiceClient): GroupStore {
   }
 
   async function update(id: string, patch: TablesUpdate<"groups">) {
-    const { error } = await db.from("groups").update(patch).eq("id", id);
+    const { error } = await db.from("groups").update(patch).eq("id", id).eq("tenant_id", tenantId);
     if (error) throw new Error(`groups update failed: ${error.message}`);
   }
 
   return {
     async listAll() {
-      const { data, error } = await db.from("groups").select(COLUMNS);
+      const { data, error } = await db.from("groups").select(COLUMNS).eq("tenant_id", tenantId);
       if (error) throw new Error(`groups read failed: ${error.message}`);
       return data.map(toRecord);
     },
@@ -72,7 +73,7 @@ export function createGroupsRepo(db: ServiceClient): GroupStore {
     async insertPending(jid, name) {
       const { data, error } = await db
         .from("groups")
-        .insert({ wa_group_jid: jid, name, status: "pending" })
+        .insert({ tenant_id: tenantId, wa_group_jid: jid, name, status: "pending" })
         .select(COLUMNS)
         .single();
       if (error?.code === UNIQUE_VIOLATION) {
@@ -96,6 +97,7 @@ export function createGroupsRepo(db: ServiceClient): GroupStore {
         const { data, error } = await db
           .from("groups")
           .update({ status_before_relink: status, relinked_at: at.toISOString() })
+          .eq("tenant_id", tenantId)
           .eq("status", status)
           .select("id");
         if (error) throw new Error(`groups update failed: ${error.message}`);
@@ -109,6 +111,7 @@ export function createGroupsRepo(db: ServiceClient): GroupStore {
         .from("groups")
         .select("status_before_relink, relinked_at")
         .eq("id", id)
+        .eq("tenant_id", tenantId)
         .maybeSingle();
       if (error) throw new Error(`groups read failed: ${error.message}`);
       if (!data?.status_before_relink || !data.relinked_at) return null;
@@ -124,6 +127,7 @@ export function createGroupsRepo(db: ServiceClient): GroupStore {
           "ai_enabled, allow_general_knowledge, daily_reply_cap, bot_instructions, reminder_permission",
         )
         .eq("id", id)
+        .eq("tenant_id", tenantId)
         .maybeSingle();
       if (error) throw new Error(`groups read failed: ${error.message}`);
       return data

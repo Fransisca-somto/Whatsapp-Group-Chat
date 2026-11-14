@@ -1,5 +1,6 @@
 // Post attachments in Supabase Storage (bucket `post-attachments`, migration 0014). The worker
-// reads files to send them and deletes files no post needs any more (Phase 6, 6.8–6.9).
+// reads files to send them and deletes files no post needs any more (Phase 6, 6.8–6.9). Shared
+// by every tenant: a file path is unique, and each removed post reports its own tenant.
 import { ATTACHMENT_BUCKET } from "@soft-agent-support/shared";
 
 import type { ServiceClient } from "./supabase.ts";
@@ -9,7 +10,9 @@ export type AttachmentsStore = {
   /** attachments_due_for_cleanup(): files every post has finished with (P30). */
   dueForCleanup(limit: number): Promise<string[]>;
   /** Deletes the files and records it on the posts; returns the posts' ids. */
-  remove(paths: string[]): Promise<{ id: string; groupId: string; kind: string | null }[]>;
+  remove(
+    paths: string[],
+  ): Promise<{ id: string; tenantId: string; groupId: string; kind: string | null }[]>;
 };
 
 export function createAttachmentsStore(db: ServiceClient): AttachmentsStore {
@@ -35,9 +38,14 @@ export function createAttachmentsStore(db: ServiceClient): AttachmentsStore {
         .update({ attachment_deleted_at: new Date().toISOString() })
         .in("attachment_path", paths)
         .is("attachment_deleted_at", null)
-        .select("id, group_id, attachment_kind");
+        .select("id, tenant_id, group_id, attachment_kind");
       if (updateError) throw new Error(`scheduled_posts update failed: ${updateError.message}`);
-      return data.map((row) => ({ id: row.id, groupId: row.group_id, kind: row.attachment_kind }));
+      return data.map((row) => ({
+        id: row.id,
+        tenantId: row.tenant_id,
+        groupId: row.group_id,
+        kind: row.attachment_kind,
+      }));
     },
   };
 }

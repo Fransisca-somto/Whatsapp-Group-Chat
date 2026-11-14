@@ -9,12 +9,13 @@ export type KnowledgeStore = {
   listActive(groupId: string): Promise<TrainingEntry[]>;
 };
 
-export function createKnowledgeRepo(db: ServiceClient): KnowledgeStore {
+export function createKnowledgeRepo(db: ServiceClient, tenantId: string): KnowledgeStore {
   return {
     async listActive(groupId) {
       const { data, error } = await db
         .from("knowledge_entries")
         .select("title, content, updated_at")
+        .eq("tenant_id", tenantId)
         .eq("group_id", groupId)
         .eq("is_active", true)
         .order("updated_at", { ascending: false });

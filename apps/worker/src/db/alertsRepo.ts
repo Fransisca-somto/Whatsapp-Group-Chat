@@ -1,4 +1,5 @@
-// alerts access (data-models.md §3.16) plus the email settings the database job needs.
+// alerts access (data-models.md §3.16), one tenant's incidents, plus the email settings the
+// database job needs.
 import type { AlertKind } from "@soft-agent-support/shared";
 
 import type { ServiceClient } from "./supabase.ts";
@@ -17,12 +18,32 @@ export type AlertStore = {
 
 const UNIQUE_VIOLATION = "23505";
 
-export function createAlertsRepo(db: ServiceClient): AlertStore {
+/**
+ * Platform-wide: copies the Resend key and sender into Vault for the database's offline check
+ * (migrations 0008, 0016). Recipients are stored too, but since 0016 the database emails each
+ * tenant's owner instead.
+ */
+export async function configureDatabaseAlertEmail(
+  db: ServiceClient,
+  apiKey: string,
+  recipients: string[],
+  from: string,
+): Promise<void> {
+  const { error } = await db.rpc("configure_alert_email", {
+    p_api_key: apiKey,
+    p_recipients: recipients,
+    p_from: from,
+  });
+  if (error) throw new Error(`configure_alert_email failed: ${error.message}`);
+}
+
+export function createAlertsRepo(db: ServiceClient, tenantId: string): AlertStore {
   return {
     async hasOpen(kind) {
       const { count, error } = await db
         .from("alerts")
         .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
         .eq("kind", kind)
         .is("resolved_at", null);
       if (error) throw new Error(`alerts read failed: ${error.message}`);
@@ -30,7 +51,9 @@ export function createAlertsRepo(db: ServiceClient): AlertStore {
     },
 
     async open(kind, incidentKey) {
-      const { error } = await db.from("alerts").insert({ kind, incident_key: incidentKey });
+      const { error } = await db
+        .from("alerts")
+        .insert({ tenant_id: tenantId, kind, incident_key: incidentKey });
       if (error?.code === UNIQUE_VIOLATION) return false;
       if (error) throw new Error(`alerts insert failed: ${error.message}`);
       return true;
@@ -40,6 +63,7 @@ export function createAlertsRepo(db: ServiceClient): AlertStore {
       const { error } = await db
         .from("alerts")
         .update({ sent_at: new Date().toISOString() })
+        .eq("tenant_id", tenantId)
         .eq("incident_key", incidentKey);
       if (error) throw new Error(`alerts update failed: ${error.message}`);
     },
@@ -48,6 +72,7 @@ export function createAlertsRepo(db: ServiceClient): AlertStore {
       const { data, error } = await db
         .from("alerts")
         .update({ resolved_at: new Date().toISOString() })
+        .eq("tenant_id", tenantId)
         .in("kind", kinds)
         .is("resolved_at", null)
         .select("id");
@@ -59,19 +84,13 @@ export function createAlertsRepo(db: ServiceClient): AlertStore {
       const { data, error } = await db
         .from("company_settings")
         .select("timezone")
-        .eq("id", 1)
+        .eq("tenant_id", tenantId)
         .maybeSingle();
       if (error) throw new Error(`company_settings read failed: ${error.message}`);
       return data?.timezone ?? "UTC";
     },
 
-    async configureDatabaseEmail(apiKey, recipients, from) {
-      const { error } = await db.rpc("configure_alert_email", {
-        p_api_key: apiKey,
-        p_recipients: recipients,
-        p_from: from,
-      });
-      if (error) throw new Error(`configure_alert_email failed: ${error.message}`);
-    },
+    configureDatabaseEmail: (apiKey, recipients, from) =>
+      configureDatabaseAlertEmail(db, apiKey, recipients, from),
   };
 }

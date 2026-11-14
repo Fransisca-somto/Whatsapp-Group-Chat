@@ -50,6 +50,7 @@
 │           ├── env.ts          # zod env schema (parseEnv)
 │           ├── logger.ts       # pino factory with redaction
 │           ├── lock/           # Leader lock (leaderLock.ts) + leader-only session loop (leaderLoop.ts)
+│           ├── tenants/        # supervisor.ts (one session per active tenant) + session.ts (a tenant's modules)
 │           ├── whatsapp/       # Baileys socket, auth-state adapter, send queue
 │           ├── ingest/         # Message intake, storage, dedupe, tag detection
 │           ├── assistant/      # Intent, answer generation, retrieval
@@ -111,6 +112,8 @@ The LLM's output can never grant permissions, choose a group, or write data.
 
 A WhatsApp linked device must have exactly one live connection.
 
+**Many tenants, one lock (ADR-039).** One worker process holds every tenant's connection, so one global lock still guarantees that no number is connected twice. While it holds the lock, the leader session runs the **tenant supervisor** (`tenants/supervisor.ts`): on start, every 30 s and on any change to `tenants` (Realtime), it starts a session for each active tenant (`tenants/session.ts`: that tenant's auth state, connection, pairing, heartbeat, alerts, ingest, assistant, reminders, search indexing and scheduler, every repository built for that tenant) and stops sessions of suspended or removed tenants. A session that fails to start is retried after 1 min, doubling up to 10 min, and never affects other tenants. Each tenant session gets a signal that aborts when either the supervisor stops it or the leader session ends; `canConnect()` is "lock held and that signal not aborted". The daily attachment cleanup runs once for all tenants. Memory grows with each connected tenant (roughly 50–150 MB), which caps tenants per server.
+
 - Table `worker_lock` has a single row. A worker instance generates a random `instance_id` on boot.
 - To acquire: atomic update where `lease_expires_at < now()` or `holder = instance_id`, setting `lease_expires_at = now() + 30s`.
 - Holder renews every **10 seconds**. If renewal fails twice in a row, the worker **closes the socket immediately** and returns to trying to acquire.
@@ -127,7 +130,8 @@ A WhatsApp linked device must have exactly one live connection.
 - Baileys auth state is stored in `wa_auth_state` (key/value) via a custom adapter in `whatsapp/authState.ts`.
 - Values are **encrypted at rest with AES-256-GCM** using `SESSION_ENCRYPTION_KEY`.
 - In-memory cache is the read path; writes are **debounced (500 ms) and batched** into one upsert. `creds` are written immediately.
-- On logout (`DisconnectReason.loggedOut`) or relink: delete all rows in `wa_auth_state`, set connection status `logged_out`.
+- Each tenant's session is the rows of `wa_auth_state` with its `tenant_id` (primary key `tenant_id, key`); every read, write and delete is limited to that tenant.
+- On logout (`DisconnectReason.loggedOut`) or relink: delete that tenant's rows in `wa_auth_state`, set its connection status `logged_out`.
 - Implementation: `whatsapp/authState.ts` (adapter), `whatsapp/crypto.ts` (AES-256-GCM, the row key is bound as associated data so a value moved to another row fails to decrypt), `db/authStateRepo.ts` (reads paged by 1000, upserts chunked by 500, deletes by 100).
 - Writes happen only while the instance holds the leader lock. On fence, pending writes are **discarded**, never flushed, so a fenced worker cannot overwrite the new holder's session.
 - `SESSION_ENCRYPTION_KEY` must never change for a linked session: a new key makes the stored session unreadable and forces a relink. Keep a backup of it outside the host.
@@ -153,7 +157,8 @@ SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
 SESSION_ENCRYPTION_KEY        # 32-byte base64
 RESEND_API_KEY                # owner alert email (required from 1.7)
-OWNER_ALERT_EMAILS            # comma-separated recipients (required from 1.7)
+OWNER_ALERT_EMAILS            # comma-separated platform alert list (required from 1.7). Since 8.4 each tenant's
+                              # alerts go to its owner; this list is the fallback when the owner email is unknown
 ALERT_FROM_EMAIL              # default: Group Assistant <onboarding@resend.dev>
 DASHBOARD_URL                 # optional; adds a dashboard link to alert emails
 LOG_LEVEL

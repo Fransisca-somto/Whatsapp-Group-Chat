@@ -5,12 +5,16 @@ import type { ServiceClient } from "./supabase.ts";
 
 export type AuthorizedUserStore = { listActive(): Promise<AuthorizedUser[]> };
 
-export function createAuthorizedUsersRepo(db: ServiceClient): AuthorizedUserStore {
+export function createAuthorizedUsersRepo(
+  db: ServiceClient,
+  tenantId: string,
+): AuthorizedUserStore {
   return {
     async listActive() {
       const { data, error } = await db
         .from("authorized_users")
         .select("phone_e164, all_groups, authorized_user_groups(group_id)")
+        .eq("tenant_id", tenantId)
         .eq("is_active", true);
       if (error) throw new Error(`authorized_users read failed: ${error.message}`);
       return data.map((row) => ({
