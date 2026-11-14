@@ -9,7 +9,7 @@ Plain steps for keeping the WhatsApp group assistant running: backups, and what 
 | Dashboard                       | Your Vercel address                                                                                            |
 | Worker (the bot)                | Railway → your project → the worker service (or wherever you host it; see README "Run the worker on any host") |
 | Data, files, the WhatsApp login | Supabase → your project                                                                                        |
-| Alert emails                    | The addresses in `OWNER_ALERT_EMAILS`                                                                          |
+| Alert emails                    | Each company's owner (their login email); `OWNER_ALERT_EMAILS` when the owner's email can't be read            |
 | What the bot did, and why       | Dashboard → **Audit log**                                                                                      |
 
 ---
@@ -54,9 +54,9 @@ Small numbers: Supabase → **Storage** → `post-attachments` → download. Man
 
 **Not in the backup (re-enter after a restore)**
 
-- The OpenRouter key (stored in Supabase Vault): paste it again on **Settings**.
+- The OpenRouter keys (stored in Supabase Vault, one per company): each owner pastes theirs again on **Settings**.
 - The alert email settings in Vault: the worker writes them again when it starts.
-- Dashboard logins (Supabase Authentication): add the users again (Authentication → Users), with their `dashboard_users` rows.
+- Dashboard logins (Supabase Authentication): add the users again (Authentication → Users) with the same User UIDs as their `dashboard_users` rows, or recreate the companies from **Companies → New owner**.
 
 ## Restore
 
@@ -68,11 +68,11 @@ pg_restore --dbname="<session pooler connection string>" --data-only --disable-t
 
 **Into a new Supabase project** (the old one is gone):
 
-1. Create the project, then from the repository root: `pnpm supabase link`, `pnpm supabase db push` (all migrations), and run `supabase/seed.sql` in the SQL Editor.
+1. Create the project, then from the repository root: `pnpm supabase link` and `pnpm supabase db push` (all migrations). Do **not** run `supabase/seed.sql`: the backup already holds the companies.
 2. `pg_restore` the backup into it as above.
 3. Upload the attachment files back into the `post-attachments` bucket.
 4. Update `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` on the worker host and the dashboard variables on Vercel, then redeploy both.
-5. Re-enter the OpenRouter key and add the dashboard users (see above).
+5. Re-enter each company's OpenRouter key and add the dashboard users (see above).
 6. If the WhatsApp login was restored with the same `SESSION_ENCRYPTION_KEY`, the bot reconnects on its own. Otherwise: **Connection → Link number**.
 
 ---

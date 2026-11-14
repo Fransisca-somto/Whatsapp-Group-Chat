@@ -10,7 +10,7 @@
 | Field | Value |
 |---|---|
 | **Current phase** | Phase 8 — Multi-tenant (Phase 7 live checks still open; Phase 4 ✅ except the 4.4 retention live check) |
-| **Current task** | 8.5 isolation test and docs, on branch `phase-8` (8.1–8.4 built) |
+| **Current task** | Phase 8 built on `phase-8`; owner: back up, deploy dashboard + worker, apply 0016, regenerate types, run the isolation test, live checks |
 | **Blockers** | None |
 | **Last updated** | 2026-11-14 (Phase 8 planned and approved) |
 
@@ -103,7 +103,7 @@ Plan: `Workflow/Phases/11-Multi-Tenant.md` (owner-approved 2026-11-14; scope cha
 - ✅ 8.2 Dashboard tenant scoping (no more `id = 1`; tenant on every insert, audit row and Realtime filter).
 - ✅ 8.3 Admin page (new owner = new tenant; suspend), Team page (owner adds staff), change password.
 - ✅ 8.4 Worker: one process, one WhatsApp session per tenant (supervisor), repositories scoped by tenant. Heartbeat and search indexing run inside each tenant session (simpler than process-wide; same behaviour); attachment cleanup stays process-wide.
-- ⬜ 8.5 Isolation test and docs.
+- ✅ 8.5 Isolation test (`supabase/tests/multi_tenant_isolation.sql`) and docs (README, RUNBOOK, `.env.example`, CLAUDE.md §2 and rule 11).
 - **Exit criteria:** tenant #1 keeps working without re-pairing; a second tenant created from Admin links its own number; each tenant's bot, dashboard, staff and alerts see only that tenant's data.
 
 ### Future (gated, do not start without owner approval) ⏸️
@@ -268,7 +268,15 @@ Newest first. One entry per working session.
 - Owner reported that a new user just joins the same WhatsApp account; they want each owner to get their own account and add their own staff.
 - Owner decisions: one shared app (multi-tenant, scope change), platform admin creates owners, 1 owner per tenant and 1 tenant per login, keep staff (added by the owner), temporary passwords, today's data becomes tenant #1, each tenant brings its own OpenRouter key. Recorded as ADR-039; `project-overview.md` updated (§1, §2, §3, §4.0, §4.7, §5, §7, §8).
 - Plan: `Workflow/Phases/11-Multi-Tenant.md`. Branch `phase-8` from `phase-7`.
-- Next: 8.1 migration 0016.
+- Built 8.1–8.5, one commit each:
+  - 8.1 migration 0016 (`tenants`, `platform_admins`, `tenant_id` on 15 tables, per-tenant keys, composite FKs to groups, fill/guard triggers, per-tenant OpenRouter key, `claim_due_posts(p_tenant_id, …)`, per-tenant offline alert, tenant RLS and storage folders). Today's data becomes tenant #1; the migration stops (changing nothing) if more than one owner exists. `seed.sql` now creates the first tenant. `database.types.ts` hand-edited to match until the migration is applied.
+  - 8.2 dashboard: tenant on every insert, audit row and Realtime filter; no more `id = 1`.
+  - 8.3 Companies (admin) and Team pages, Change password; tests for the new actions.
+  - 8.4 worker: tenant supervisor + per-tenant sessions; every repository takes the tenant. Deviation from the plan's wording, same behaviour: heartbeat and search indexing run inside each tenant session instead of process-wide (each needs that tenant's row, key and time zone); attachment cleanup stays process-wide.
+  - 8.5 SQL isolation test, docs.
+- Checks: typecheck clean in all packages; tests pass (dashboard 157, shared 100, worker 276); lint clean except a Phase 7 error that predates this work (`apps/worker/src/assistant/loadTest.test.ts:172`, an unnecessary type assertion).
+- **Not applied yet.** The live worker on EC2 still runs the old code, which expects `id = 1`: the migration, the new worker and the new dashboard must go out together.
+- Next (owner): back up; deploy the `phase-8` dashboard and worker; apply 0016 (`pnpm supabase db push`); regenerate types (should match the hand edit); run `supabase/tests/multi_tenant_isolation.sql`; live checks in the plan's Verify section. Verify a domain in Resend before other owners can receive alerts.
 
 ### 2026-10-25 — Claude (worker moved to AWS EC2)
 - Railway refused the owner's sign-up for its trial; Koyeb no longer accepts deployments (joining Mistral); Google Cloud sign-up failed too. AWS accepted the account (free plan: $100 credit, 183 days).

@@ -1,8 +1,8 @@
 # Group Chatbot Agent
 
-A WhatsApp group assistant for one company. A worker runs one linked WhatsApp number that sits in the company's staff groups. When someone tags it, it answers from that group's training and recent chat. A web dashboard manages groups, training, the AI provider, the WhatsApp link and worker health. Supabase holds all data.
+A WhatsApp group assistant for many companies. Each company (tenant) has its own owner, its own linked WhatsApp number in its staff groups, and its own data. One worker runs every company's number. When someone tags it, it answers from that group's training and recent chat. A web dashboard manages groups, training, the AI provider, the WhatsApp link and worker health. Supabase holds all data.
 
-Nothing in the code is specific to one company. Each company gets its own copy: its own Supabase project, its own worker, its own WhatsApp number (ADR-020, ADR-028).
+Nothing in the code is specific to one company. One deployment serves many companies (ADR-039): the platform admin adds each new company from the dashboard (**Companies → New owner**), and that owner adds their own staff (**Team**). Companies never see each other's data.
 
 - `apps/dashboard`: Next.js dashboard (Vercel)
 - `apps/worker`: Node worker that holds the WhatsApp connection (Railway or Fly.io, one instance)
@@ -10,7 +10,7 @@ Nothing in the code is specific to one company. Each company gets its own copy: 
 - `supabase/`: migrations and the seed template
 - `Workflow/`: project docs. Agents start with `CLAUDE.md`.
 
-## Set up for a new company
+## Set up from scratch (once per deployment)
 
 You need Node 24, pnpm (`corepack enable`), a Supabase account, a Resend account, an OpenRouter account, and a phone with a dedicated SIM for the bot's WhatsApp number.
 
@@ -19,8 +19,8 @@ You need Node 24, pnpm (`corepack enable`), a Supabase account, a Resend account
 1. Create a new Supabase project.
 2. Install and link: `pnpm install`, then `pnpm supabase link --project-ref <project ref>`.
 3. Apply the schema: `pnpm supabase db push`.
-4. In Supabase → Authentication → Users, create the owner's login and copy its User UID.
-5. Fill the placeholders in `supabase/seed.sql` (company name, time zone, owner UID and name), then run it once in the Supabase SQL Editor.
+4. In Supabase → Authentication → Users, create the first owner's login and copy its User UID. This person is also the **platform admin**.
+5. Fill the placeholders in `supabase/seed.sql` (company name, time zone, owner UID and name), then run it once in the Supabase SQL Editor. It creates the first company, its owner and the platform admin. Never run it again: add later companies from the dashboard.
 6. In Supabase → Authentication → Sign In / Providers, turn off "Allow new users to sign up".
 
 ### 2. Environment
@@ -28,7 +28,8 @@ You need Node 24, pnpm (`corepack enable`), a Supabase account, a Resend account
 Copy `.env.example` to `apps/worker/.env` and `apps/dashboard/.env.local` and fill them in. Each file only needs its own section.
 
 - `SESSION_ENCRYPTION_KEY`: generate with `openssl rand -base64 32`. Back it up outside the host. Changing it later forces a relink.
-- `RESEND_API_KEY` and `OWNER_ALERT_EMAILS`: where "bot logged out" and "worker offline" emails go. Resend's test sender only reaches the Resend account's own address until a domain is verified.
+- `RESEND_API_KEY` and `OWNER_ALERT_EMAILS`: alert emails ("bot logged out", "worker offline") go to each company's owner; `OWNER_ALERT_EMAILS` is the fallback list. Resend's test sender only reaches the Resend account's own address, so **verify a domain in Resend** before other owners can receive alerts.
+- `SUPABASE_SERVICE_ROLE_KEY` is needed by the dashboard too: it creates logins for new owners and staff.
 - The OpenRouter key and models are **not** set here. The owner sets them on the dashboard (step 4).
 
 ### 3. Deploy
@@ -82,12 +83,22 @@ docker run -d --name group-assistant-worker --restart unless-stopped \
 
 To update: `git pull`, build again, then `docker stop group-assistant-worker && docker rm group-assistant-worker` and run it again (stop the old one before starting the new one).
 
-### 4. From the dashboard (owner)
+### 4. Adding a company (platform admin)
+
+1. **Companies → New owner:** company name, time zone, the owner's name, login email and a temporary password (**Suggest** makes one).
+2. Send the owner the email and temporary password privately. They log in, change the password (menu at the top right) and follow the steps below.
+3. **Suspend** a company to shut its users out and stop its bot (nothing is deleted; **Reactivate** undoes it).
+
+Each company's WhatsApp connection uses memory on the worker's server (roughly 50–150 MB), so a small server holds only a few companies.
+
+### 5. From the dashboard (each owner)
 
 1. **Settings:** check the company name, bot name and time zone. Paste the OpenRouter API key (it is checked with OpenRouter, then stored encrypted) and pick a chat model and a fallback model.
 2. **Connection:** enter the bot's number, click **Link number**, and enter the pairing code in WhatsApp → Linked devices → Link with phone number.
 3. Add the bot's number to the WhatsApp groups. Each group appears under **Groups** as Pending.
 4. **Approve** each group, then **train** it on its Train tab: type entries with headings and subheadings, upload a `.txt` / `.md` file, or copy training from another group.
+
+5. **Team** (optional): add staff with a name, login email and temporary password. Staff manage groups, training, reminders and authorized users, but not Connection, Settings or Team.
 
 The bot answers only in approved, trained groups, and only when tagged.
 
