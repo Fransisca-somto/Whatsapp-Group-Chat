@@ -169,7 +169,7 @@ function setup() {
       sentAt: message.sentAt,
       handledStatus: "received",
     });
-    assistant.handle(message, group, { key: { id } } as WAMessage);
+    assistant.handle(message, group, { key: { id } });
   };
 
   return { tag, delivered, audit, runs };

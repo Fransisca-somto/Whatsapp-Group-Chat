@@ -274,7 +274,7 @@ Newest first. One entry per working session.
   - 8.3 Companies (admin) and Team pages, Change password; tests for the new actions.
   - 8.4 worker: tenant supervisor + per-tenant sessions; every repository takes the tenant. Deviation from the plan's wording, same behaviour: heartbeat and search indexing run inside each tenant session instead of process-wide (each needs that tenant's row, key and time zone); attachment cleanup stays process-wide.
   - 8.5 SQL isolation test, docs.
-- Checks: typecheck clean in all packages; tests pass (dashboard 157, shared 100, worker 276); lint clean except a Phase 7 error that predates this work (`apps/worker/src/assistant/loadTest.test.ts:172`, an unnecessary type assertion).
+- Checks: typecheck clean in all packages; tests pass (dashboard 157, shared 100, worker 276); lint clean (the Phase 7 lint error in `apps/worker/src/assistant/loadTest.test.ts:172`, an unnecessary type assertion, was fixed with the owner's approval).
 - **Not applied yet.** The live worker on EC2 still runs the old code, which expects `id = 1`: the migration, the new worker and the new dashboard must go out together.
 - Next (owner): back up; deploy the `phase-8` dashboard and worker; apply 0016 (`pnpm supabase db push`); regenerate types (should match the hand edit); run `supabase/tests/multi_tenant_isolation.sql`; live checks in the plan's Verify section. Verify a domain in Resend before other owners can receive alerts.
 
