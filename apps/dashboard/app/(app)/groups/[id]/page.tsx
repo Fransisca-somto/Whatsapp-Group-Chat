@@ -66,7 +66,7 @@ function pickTab(value: string | string[] | undefined): GroupTab {
 
 async function GroupContent({ params, searchParams }: Props) {
   const [{ id }, { tab }] = await Promise.all([params, searchParams]);
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
   const supabase = await createClient();
 
   const [
@@ -94,14 +94,21 @@ async function GroupContent({ params, searchParams }: Props) {
     supabase
       .from("company_settings")
       .select("timezone, bot_display_name")
-      .eq("id", 1)
+      .eq("tenant_id", user.tenantId)
       .maybeSingle(),
     supabase.from("knowledge_entries").select(TRAINING_COLUMNS).eq("group_id", id).order("title"),
     // Other groups' training sizes, for "Copy from group". Counts only, no content.
-    supabase.from("knowledge_entries").select("group_id, groups(name)").neq("group_id", id),
+    supabase
+      .from("knowledge_entries")
+      .select("group_id, groups!knowledge_entries_group_id_fkey(name)")
+      .neq("group_id", id),
     // The bot's WhatsApp IDs, so "@52055741849776" mentions can show as "@Assistant".
-    supabase.from("wa_connection").select("bot_jid, bot_lid").eq("id", 1).maybeSingle(),
-    loadSchedule(id),
+    supabase
+      .from("wa_connection")
+      .select("bot_jid, bot_lid")
+      .eq("tenant_id", user.tenantId)
+      .maybeSingle(),
+    loadSchedule(user.tenantId, id),
   ]);
   if (groupResult.error?.code === INVALID_UUID || (!groupResult.error && !groupResult.data)) {
     notFound();

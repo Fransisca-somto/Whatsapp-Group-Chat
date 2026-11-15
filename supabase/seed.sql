@@ -1,7 +1,9 @@
--- Seed: company settings and the first owner. A template: nothing in it is specific to one
--- company (ADR-028). See README.md, "Set up for a new company".
+-- Seed for a FRESH install: the first tenant, its owner, and that owner as platform admin.
+-- A template: nothing in it is specific to one company. See README.md, "Set up from scratch".
+-- Every later company is added from the dashboard (Admin → New owner), not with this file.
 --
 -- `supabase db push` does NOT run this file. Run it once by hand in the Supabase dashboard (SQL Editor).
+-- Do not run it on a database that already has data: migration 0016 turned that data into tenant #1.
 --
 -- Before running:
 --   1. In Supabase -> Authentication -> Users, create the owner's login (email + password) and
@@ -14,16 +16,25 @@
 --   3. In Supabase -> Authentication -> Sign In / Providers, turn OFF "Allow new users to sign up".
 --
 -- Everything else (bot name, AI key and models, groups, training) is set from the dashboard.
--- The company name and time zone can also be changed later on the Settings page.
 
-insert into public.company_settings (id, company_name, timezone, bot_display_name)
-values (1, '<COMPANY NAME>', '<TIME ZONE>', 'Assistant')
-on conflict (id) do update
-  set company_name = excluded.company_name,
-      timezone = excluded.timezone;
+do $$
+declare
+  v_tenant uuid;
+begin
+  if exists (select 1 from public.tenants) then
+    raise exception 'seed.sql: a tenant already exists; add new companies from the dashboard (Admin → New owner)';
+  end if;
 
-insert into public.dashboard_users (user_id, display_name, role)
-values ('<OWNER USER UID>', '<OWNER NAME>', 'owner')
-on conflict (user_id) do update
-  set display_name = excluded.display_name,
-      role = excluded.role;
+  insert into public.tenants (name) values ('<COMPANY NAME>') returning id into v_tenant;
+
+  insert into public.company_settings (tenant_id, company_name, timezone, bot_display_name)
+  values (v_tenant, '<COMPANY NAME>', '<TIME ZONE>', 'Assistant');
+
+  insert into public.wa_connection (tenant_id) values (v_tenant);
+
+  insert into public.dashboard_users (user_id, tenant_id, display_name, role)
+  values ('<OWNER USER UID>', v_tenant, '<OWNER NAME>', 'owner');
+
+  insert into public.platform_admins (user_id) values ('<OWNER USER UID>');
+end;
+$$;

@@ -64,7 +64,7 @@ export async function upsertTrainingEntry(input: unknown): Promise<ActionResult<
         .select("id")
     : await supabase
         .from("knowledge_entries")
-        .insert({ ...values, group_id: groupId })
+        .insert({ ...values, tenant_id: user.tenantId, group_id: groupId })
         .select("id");
   if (error) {
     console.error("upsertTrainingEntry: write failed", error);
@@ -75,6 +75,7 @@ export async function upsertTrainingEntry(input: unknown): Promise<ActionResult<
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: id ? "training_updated" : "training_added",
     groupId,
     detail: { entryId: saved.id, title, isActive, characters: content.length },
@@ -107,6 +108,7 @@ export async function setTrainingEntryActive(input: unknown): Promise<ActionResu
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "training_updated",
     groupId,
     detail: { entryId: id, title: entry.title, isActive },
@@ -139,6 +141,7 @@ export async function deleteTrainingEntry(input: unknown): Promise<ActionResult>
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "training_deleted",
     groupId,
     detail: { entryId: id, title: entry.title },
@@ -160,6 +163,7 @@ export async function importTraining(input: unknown): Promise<ActionResult<{ cou
     .from("knowledge_entries")
     .insert(
       entries.map((entry) => ({
+        tenant_id: user.tenantId,
         group_id: groupId,
         title: entry.title,
         content: entry.content,
@@ -174,6 +178,7 @@ export async function importTraining(input: unknown): Promise<ActionResult<{ cou
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "training_imported",
     groupId,
     detail: { count: data.length, titles: entries.slice(0, 20).map((entry) => entry.title) },
@@ -206,6 +211,7 @@ export async function copyTraining(input: unknown): Promise<ActionResult<{ count
     .from("knowledge_entries")
     .insert(
       source.map((entry) => ({
+        tenant_id: user.tenantId,
         group_id: toGroupId,
         title: entry.title,
         content: entry.content,
@@ -221,6 +227,7 @@ export async function copyTraining(input: unknown): Promise<ActionResult<{ count
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "training_copied",
     groupId: toGroupId,
     detail: { fromGroupId, count: data.length },
@@ -253,6 +260,7 @@ export async function updateBotInstructions(input: unknown): Promise<ActionResul
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "bot_instructions_updated",
     groupId,
     detail: { characters: instructions?.length ?? 0 },

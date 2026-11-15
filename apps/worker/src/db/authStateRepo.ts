@@ -1,4 +1,5 @@
-// wa_auth_state access (data-models.md §3.13). Values arrive already encrypted.
+// wa_auth_state access (data-models.md §3.13), one tenant's session. Values arrive already
+// encrypted.
 import type { ServiceClient } from "./supabase.ts";
 
 export type AuthStateRow = { key: string; value_enc: string };
@@ -22,7 +23,7 @@ function chunks<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-export function createAuthStateRepo(db: ServiceClient): AuthStateStore {
+export function createAuthStateRepo(db: ServiceClient, tenantId: string): AuthStateStore {
   return {
     async loadAll() {
       const rows: AuthStateRow[] = [];
@@ -30,6 +31,7 @@ export function createAuthStateRepo(db: ServiceClient): AuthStateStore {
         const { data, error } = await db
           .from("wa_auth_state")
           .select("key, value_enc")
+          .eq("tenant_id", tenantId)
           .order("key")
           .range(from, from + PAGE_SIZE - 1);
         if (error) throw new Error(`wa_auth_state load failed: ${error.message}`);
@@ -41,23 +43,28 @@ export function createAuthStateRepo(db: ServiceClient): AuthStateStore {
     async upsertMany(rows) {
       const now = new Date().toISOString();
       for (const chunk of chunks(rows, WRITE_CHUNK)) {
-        const { error } = await db
-          .from("wa_auth_state")
-          .upsert(chunk.map((row) => ({ ...row, updated_at: now })));
+        const { error } = await db.from("wa_auth_state").upsert(
+          chunk.map((row) => ({ ...row, tenant_id: tenantId, updated_at: now })),
+          { onConflict: "tenant_id,key" },
+        );
         if (error) throw new Error(`wa_auth_state upsert failed: ${error.message}`);
       }
     },
 
     async deleteMany(keys) {
       for (const chunk of chunks(keys, DELETE_CHUNK)) {
-        const { error } = await db.from("wa_auth_state").delete().in("key", chunk);
+        const { error } = await db
+          .from("wa_auth_state")
+          .delete()
+          .eq("tenant_id", tenantId)
+          .in("key", chunk);
         if (error) throw new Error(`wa_auth_state delete failed: ${error.message}`);
       }
     },
 
     async deleteAll() {
-      // PostgREST refuses an unfiltered delete; every key is non-empty.
-      const { error } = await db.from("wa_auth_state").delete().neq("key", "");
+      // Only this tenant's session: never another company's.
+      const { error } = await db.from("wa_auth_state").delete().eq("tenant_id", tenantId);
       if (error) throw new Error(`wa_auth_state clear failed: ${error.message}`);
     },
   };

@@ -15,7 +15,7 @@ A WhatsApp assistant that lives inside a company's **staff group chats**. One de
 - **Posts scheduled announcements and reminders** on its own. This is the only time it speaks without being tagged.
 - Is managed from a **web dashboard**: groups and their training, the AI provider, authorized users, reminders, announcements, linking the number, and worker health.
 
-Nothing in the code is specific to one company: each company gets its own copy and sets everything up from the dashboard (ADR-028).
+One deployment serves **many companies (tenants)**. Each tenant has its own owner, its own WhatsApp number, groups, training, AI key, staff and data, fully isolated from every other tenant. A **platform admin** creates each new owner, which creates their tenant (owner decision 2026-11-14, ADR-039; replaces one copy per company, ADR-028).
 
 The company's existing **customer chats on the official Meta Cloud API are completely separate** and continue unchanged.
 
@@ -25,13 +25,14 @@ The company's existing **customer chats on the official Meta Cloud API are compl
 |---|---|---|
 | **Company staff** (group members) | Now | Tag the bot in WhatsApp groups to ask questions; receive announcements and reminders. |
 | **Authorized users** (bot admins) | Now | Everything staff can do, plus create reminders by tag (or all members, if the group's toggle allows). |
-| **Dashboard owner** | Now | Full control of the dashboard, including the destructive Relink action. |
-| **Dashboard staff** | Now | Manage content (training, reminders, announcements, authorized users) but cannot relink or change Settings. `[DEFAULT]` |
+| **Platform admin** | Now | Creates new owners (each gets a new tenant) and can suspend or reactivate a tenant. Sees no tenant's content except their own. The first owner is also the platform admin. |
+| **Dashboard owner** | Now | Full control of their own tenant's dashboard, including the destructive Relink action and adding or removing their staff (Team page). Exactly one owner per tenant. |
+| **Dashboard staff** | Now | Added by their tenant's owner. Manage content (training, reminders, announcements, authorized users) but cannot relink, change Settings or manage the Team. |
 | **Customers** in a group | **Future, gated** | Same as staff. Only enabled after the hardening phase is complete (see §6). |
 
 ## 3. Core Concepts
 
-- **Company:** exactly one per deployment. Owns the single timezone, the bot name and the AI provider account (OpenRouter key and models, set by the owner on the Settings page; ADR-027).
+- **Tenant (company):** one per owner; a deployment holds many. Owns one WhatsApp number, its timezone, the bot name and the AI provider account (OpenRouter key and models, set by the owner on the Settings page; ADR-027). Tenants never see each other's data. Each login belongs to exactly one tenant.
 - **Group:** a WhatsApp group the bot is in. Each group has **independent records**: training, messages, reminders, announcements, settings and logs. Groups never see each other's data.
 - **Group training:** each group has its own training (headings with subheadings and details; typed, uploaded as `.txt` / `.md`, or copied from another group) plus optional bot instructions. The bot in a group knows only that group's training (owner decision 2026-10-22, ADR-026; replaces the shared company brain).
 - **Authorized user:** a person on the dashboard's own list, identified by **phone number**. This list, not WhatsApp group-admin status, decides who may command the bot.
@@ -39,9 +40,14 @@ The company's existing **customer chats on the official Meta Cloud API are compl
 
 ## 4. Core User Flows
 
+### 4.0 Adding a new company (platform admin)
+1. The platform admin opens **Admin → New owner** and enters the company name, the owner's name, email and a temporary password.
+2. This creates the owner's login and their new, empty tenant. The admin shares the email and temporary password with the owner.
+3. The owner logs in, changes the password from the user menu, and follows §4.1. They add staff from the **Team** page (name, email, temporary password).
+
 ### 4.1 One-time setup (owner)
 1. Owner gets a dedicated SIM and installs WhatsApp on a phone with it.
-2. Worker is deployed to an always-on host.
+2. The worker is already running (one worker serves every tenant).
 3. In the dashboard **Connection** page, the owner enters the bot's phone number and clicks **Link number**.
 4. A pairing code appears. The owner enters it in WhatsApp → *Linked devices* → *Link with phone number*.
 5. The session is saved (encrypted) in Supabase, so restarts never need re-pairing.
@@ -91,7 +97,7 @@ Before the bot can answer anywhere, the owner saves the company's OpenRouter key
 4. Because it is a new number, the dashboard shows a **re-admission checklist** listing every active group that must add the new number.
 
 ### 4.7 Alerts
-If the bot is logged out, another device takes over its session, reconnecting fails 10 times in a row, or the worker is offline for more than 5 minutes, the owner receives an **email** (sent through Resend), at most once per incident. Changed from WhatsApp alerts via the Cloud API by the owner on 2026-10-18 (ADR-025).
+If the bot is logged out, another device takes over its session, reconnecting fails 10 times in a row, or the worker is offline for more than 5 minutes, that tenant's owner receives an **email** (sent through Resend), at most once per incident. Changed from WhatsApp alerts via the Cloud API by the owner on 2026-10-18 (ADR-025).
 
 ## 5. Permissions Matrix
 
@@ -104,6 +110,8 @@ If the bot is logged out, another device takes over its session, reconnecting fa
 | Create announcements | ❌ | ❌ | ✅ | ✅ |
 | Manage knowledge, groups, authorized users | ❌ | ❌ | ✅ | ✅ |
 | Link / relink number | ❌ | ❌ | ❌ | ✅ |
+| Add / remove staff (Team) | ❌ | ❌ | ❌ | ✅ |
+| Create owners / tenants | Platform admin only |  |  |  |
 
 ## 6. Bot Behavior Rules
 
@@ -126,8 +134,8 @@ Agents must not build any of the following, even partially:
 - Editing, cancelling or creating **recurring** reminders through the group chat.
 - Reminders that @mention specific people (future phase).
 - Direct (1-to-1) chats with the bot. The bot ignores private messages. `[DEFAULT]`
-- Multiple companies / multi-tenancy.
-- Multiple linked numbers at the same time.
+- More than one linked number per tenant. (Many tenants, each with one number, are in scope since 2026-11-14, ADR-039.)
+- Public sign-up; a login belonging to more than one tenant; more than one owner per tenant.
 - Media understanding (images, voice notes, documents). These are stored as metadata only. `[DEFAULT]`
 - The AI creating, editing or choosing images, audio or files. Attachments are only what a person uploads or records (owner decision, 2026-10-24).
 - Live audio streams or calls in groups (not possible for a WhatsApp bot); attachments on reminders set by tagging the bot; more than one attachment per post.
@@ -143,4 +151,6 @@ Agents must not build any of the following, even partially:
 | Two worker instances connecting at once causes logout or ban. | Leader lock plus stop-before-start deploys. |
 | Prompt injection by group members. | AI proposes, code authorizes; bot knows only company knowledge and that group's history. |
 | Stored staff messages are a privacy concern. | Per-group retention setting; history never crosses groups; revisit consent before customer mode. |
+| Many numbers linked from one server may look like automation to WhatsApp; one server's memory caps the number of tenants. | Few tenants per server; larger or more servers as tenants grow. |
+| One tenant seeing another's data. | `tenant_id` on every table, RLS per tenant, worker repositories always filter by tenant, isolation test. |
 | WhatsApp may hide phone numbers behind anonymous IDs (LIDs). | Authorization requires a resolvable phone number; if none, the sender is treated as unauthorized and told so. |

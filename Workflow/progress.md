@@ -9,10 +9,10 @@
 
 | Field | Value |
 |---|---|
-| **Current phase** | Phase 7 — Hardening (Phase 0–3, 5, 6 ✅; Phase 4 ✅ except the 4.4 retention live check, due about 2026-11-23) |
-| **Current task** | 7.0–7.4 built on `phase-7`. Next: owner applies migration 0015, deploys the worker to Railway (README), stops the PC copy, and runs the live checks |
+| **Current phase** | Phase 8 — Multi-tenant (Phase 7 live checks still open; Phase 4 ✅ except the 4.4 retention live check) |
+| **Current task** | Phase 8 built on `phase-8`; owner: back up, deploy dashboard + worker, apply 0016, regenerate types, run the isolation test, live checks |
 | **Blockers** | None |
-| **Last updated** | 2026-10-24 (Phase 7 built, migration 0015) |
+| **Last updated** | 2026-11-14 (Phase 8 planned and approved) |
 
 ---
 
@@ -91,11 +91,20 @@ Plan: `Workflow/Phases/08-Tag-Reminders.md` (owner-approved 2026-10-23, P21–P2
 
 ### Phase 7 — Hardening 🟦
 Plan: `Workflow/Phases/10-Hardening.md` (owner-approved 2026-10-24; P35 revised to be host-neutral, P36–P40).
-- 🟦 7.0 Worker on any Docker host, Railway first (Dockerfile, README "Run the worker on any host"). Built; awaiting the Railway deploy.
+- 🟦 7.0 Worker on any Docker host (Dockerfile, README "Run the worker on any host"). **Live on AWS EC2 since 2026-10-25** (Railway, Koyeb and Google Cloud sign-ups failed); README still names Railway as the first example.
 - 🟦 7.1 Relink re-admission checklist (groups return on their own; migration 0015). Built; awaiting migration 0015 (live check optional, needs a spare SIM).
 - 🟦 7.2 Load test: 5 simultaneous tags in one group handled serially and correctly. Automated test passes (and fails without the per-group queue); live check awaits the owner.
 - 🟦 7.3 Backup/restore notes for session and data (`RUNBOOK.md`). Written; awaiting one backup run by the owner.
 - ✅ 7.4 Runbook: banned number, worker down, OpenRouter outage, and more (`RUNBOOK.md`).
+
+### Phase 8 — Multi-tenant 🟦
+Plan: `Workflow/Phases/11-Multi-Tenant.md` (owner-approved 2026-11-14; scope change, ADR-039). Started before Phase 7's remaining live checks with the owner's approval.
+- ✅ 8.1 Schema + backfill (migration 0016, written; applied together with 8.2–8.4): `tenants`, `platform_admins`, `tenant_id` on every table, per-tenant uniques, functions and RLS; today's data becomes tenant #1.
+- ✅ 8.2 Dashboard tenant scoping (no more `id = 1`; tenant on every insert, audit row and Realtime filter).
+- ✅ 8.3 Admin page (new owner = new tenant; suspend), Team page (owner adds staff), change password.
+- ✅ 8.4 Worker: one process, one WhatsApp session per tenant (supervisor), repositories scoped by tenant. Heartbeat and search indexing run inside each tenant session (simpler than process-wide; same behaviour); attachment cleanup stays process-wide.
+- ✅ 8.5 Isolation test (`supabase/tests/multi_tenant_isolation.sql`) and docs (README, RUNBOOK, `.env.example`, CLAUDE.md §2 and rule 11).
+- **Exit criteria:** tenant #1 keeps working without re-pairing; a second tenant created from Admin links its own number; each tenant's bot, dashboard, staff and alerts see only that tenant's data.
 
 ### Future (gated, do not start without owner approval) ⏸️
 - ⏸️ **Customer mode** — requires Phase 7 ✅, a consent and retention decision, and a ban-risk review.
@@ -163,7 +172,7 @@ Context: pnpm resolved TypeScript 7 and `@types/node` 26 for the worker and shar
 **ADR-019 — Database conventions · 2026-10-08 · Accepted**
 Decision: One hosted Supabase project (no Docker, no rehearsal project; the empty real project is the fresh-database test). Seven migrations by concern (`0001`–`0007`). `public.current_role()` renamed to `current_dashboard_role()` (reserved keyword). Guard triggers enforce append-only `bot_actions` and restricted updates on `group_messages`, because the service-role worker bypasses RLS. Worker-only functions are executable by `service_role` only. Every RLS policy requires a non-null dashboard role, so a stray Supabase sign-up sees nothing. Consequences: `data-models.md` updated; new schema changes ship as new numbered migrations, never edits to applied ones.
 
-**ADR-020 — One WhatsApp number per deployment · 2026-10-08 · Accepted**
+**ADR-020 — One WhatsApp number per deployment · 2026-10-08 · Superseded by ADR-039 (one number per tenant)**
 Decision: The system serves one number in many groups. Single-row tables (`wa_connection`, `worker_lock`, `company_settings`) and one `wa_auth_state` encode this. A second bot number is handled by cloning the repository with its own Supabase project and worker. Consequences: full isolation between bots; multi-number in one system would need an account column across most tables and is out of scope.
 
 **ADR-021 — Tooling baseline for quality checks · 2026-10-09 · Accepted**
@@ -187,7 +196,7 @@ Context: The owner wants each group trained separately, and the project reusable
 **ADR-027 — AI provider configured from the dashboard · 2026-10-22 · Accepted (owner decision; amends ADR-024)**
 Context: A company using its own copy must not need server access to set or change its AI account. Decision: The owner enters the OpenRouter API key and picks the chat and fallback models on the Settings page. The dashboard checks the key with OpenRouter (`GET /api/v1/key`) and stores it in Supabase Vault through `set_openrouter_key()`, which re-checks the owner role inside the database; only the last four characters (`openrouter_key_hint`) are readable. Models are checked against OpenRouter's live model list and stored in `company_settings`. The worker reads the key with `get_openrouter_key()` (service role only) and the models from `company_settings`, re-reading at most every 60 s. The `OPENROUTER_*` environment variables are removed; embeddings variables stay optional until Phase 4. Consequences: a key change applies without a restart or redeploy; the dashboard never handles the key after saving it; the dashboard's service-role use is unchanged (audit only).
 
-**ADR-028 — Reusable setup for another company · 2026-10-22 · Accepted (owner decision)**
+**ADR-028 — Reusable setup for another company · 2026-10-22 · Superseded by ADR-039 (new companies are tenants)**
 Decision: Nothing company-specific lives in code. `supabase/seed.sql` is a template with placeholders, and the root `README.md` has a "Set up for a new company" checklist: new Supabase project, migrations, seed, worker and dashboard deploys, then Settings, Connection, group approval and training from the dashboard. One copy per company (ADR-020). Consequences: the real company name and owner live only in the database; re-running the template seed no longer overwrites the bot name set in Settings.
 
 **ADR-029 — Reply style · 2026-10-22 · Accepted (owner decision; answers Open Default D3)**
@@ -220,6 +229,9 @@ Context: on the owner's PC the worker kept losing Supabase and WhatsApp. Decisio
 **ADR-038 — Groups return on their own after a number change · 2026-10-24 · Accepted (owner decision P38; amends the "re-added → pending" rule of task 2.1 for relinks)**
 Decision: before a relink logs the old number out, the worker records each active / paused group's status (`groups.status_before_relink`, `relinked_at`, migration 0015). When the new number is added to such a group within 30 days, it returns to that status without re-approval; groups removed for any other reason, or re-added later than 30 days, still come back as pending. The Connection page lists the groups waiting for the new number. Consequences: a routine number change needs only adding the number to each group; training and settings are kept.
 
+**ADR-039 — Multi-tenant in one deployment · 2026-11-14 · Accepted (owner decision; supersedes ADR-020 and ADR-028, amends ADR-022, ADR-025, ADR-027)**
+Context: every login in a deployment shared its one WhatsApp number, so a new owner joined the existing company instead of getting their own. Decision: one deployment serves many tenants. A `tenants` table; `tenant_id` on every tenant-owned table (denormalized, with composite foreign keys to `groups` so a row cannot point at another tenant's group); RLS checks `tenant_id = current_tenant_id()`. A platform admin (`platform_admins`; the first owner) creates each owner and their tenant from the dashboard with a temporary password; owners add staff from a Team page; nobody signs up alone. One owner per tenant, one tenant per login. Each tenant has its own OpenRouter key (Vault secret per tenant) and its alerts go to its owner's email. Existing data becomes tenant #1. One worker process, still behind **one global leader lock**, runs one WhatsApp session per active tenant. Consequences: no new Supabase project or worker per company; all tenants share one worker and server (memory and WhatsApp ban risk grow with tenants); every repository and query must filter by tenant.
+
 ---
 
 ## Open Defaults to Confirm
@@ -251,6 +263,28 @@ Newest first. One entry per working session.
 - Next: <what should happen next>
 - Notes / issues: <anything the next session must know>
 ```
+
+### 2026-11-14 — Claude (Phase 8 planned: multi-tenant)
+- Owner reported that a new user just joins the same WhatsApp account; they want each owner to get their own account and add their own staff.
+- Owner decisions: one shared app (multi-tenant, scope change), platform admin creates owners, 1 owner per tenant and 1 tenant per login, keep staff (added by the owner), temporary passwords, today's data becomes tenant #1, each tenant brings its own OpenRouter key. Recorded as ADR-039; `project-overview.md` updated (§1, §2, §3, §4.0, §4.7, §5, §7, §8).
+- Plan: `Workflow/Phases/11-Multi-Tenant.md`. Branch `phase-8` from `phase-7`.
+- Built 8.1–8.5, one commit each:
+  - 8.1 migration 0016 (`tenants`, `platform_admins`, `tenant_id` on 15 tables, per-tenant keys, composite FKs to groups, fill/guard triggers, per-tenant OpenRouter key, `claim_due_posts(p_tenant_id, …)`, per-tenant offline alert, tenant RLS and storage folders). Today's data becomes tenant #1; the migration stops (changing nothing) if more than one owner exists. `seed.sql` now creates the first tenant. `database.types.ts` hand-edited to match until the migration is applied.
+  - 8.2 dashboard: tenant on every insert, audit row and Realtime filter; no more `id = 1`.
+  - 8.3 Companies (admin) and Team pages, Change password; tests for the new actions.
+  - 8.4 worker: tenant supervisor + per-tenant sessions; every repository takes the tenant. Deviation from the plan's wording, same behaviour: heartbeat and search indexing run inside each tenant session instead of process-wide (each needs that tenant's row, key and time zone); attachment cleanup stays process-wide.
+  - 8.5 SQL isolation test, docs.
+- Checks: typecheck clean in all packages; tests pass (dashboard 157, shared 100, worker 276); lint clean (the Phase 7 lint error in `apps/worker/src/assistant/loadTest.test.ts:172`, an unnecessary type assertion, was fixed with the owner's approval).
+- **2026-11-15:** Softwirelex (second owner) changed to staff by the owner; old worker stopped; migration 0016 applied (`pnpm supabase db push`). Regenerated types showed every embedded join (`groups(name)`, `authorized_user_groups(group_id)`) would fail at runtime ("more than one relationship", from the new composite foreign keys); fixed by naming the original foreign key in each embed, before the new worker started.
+- Next (owner): back up; deploy the `phase-8` dashboard and worker; apply 0016 (`pnpm supabase db push`); regenerate types (should match the hand edit); run `supabase/tests/multi_tenant_isolation.sql`; live checks in the plan's Verify section. Verify a domain in Resend before other owners can receive alerts.
+
+### 2026-10-25 — Claude (worker moved to AWS EC2)
+- Railway refused the owner's sign-up for its trial; Koyeb no longer accepts deployments (joining Mistral); Google Cloud sign-up failed too. AWS accepted the account (free plan: $100 credit, 183 days).
+- The owner set up an EC2 **t4g.micro (Arm, Ubuntu 26.04)** with 2 GB swap and Docker, cloned the repository on `phase-7`, built `apps/worker/Dockerfile` (first real build of the image: it works on Arm, ffmpeg's Linux binary included) and ran one container (`--restart unless-stopped --stop-timeout 15 --env-file worker.env`).
+- Issues on the way: the browser terminal pasted every command twice (harmless "name already in use" errors); `OWNER_ALERT_EMAILS` was missing or malformed in `worker.env` (Docker env files take no quotes, spaces around `=` or trailing comments); fixed by rewriting the line.
+- 15:58 UTC: after the PC worker was stopped, the server logged `lock acquired`, `auth state loaded` (8,726 rows in about 2 s, versus over a minute on the PC), `leader session started`, `connected to WhatsApp`, `groups synced` (2). No re-pairing.
+- Cost note: roughly $8–11/month (instance, 16 GB disk, public IPv4) from the AWS credit; the free plan ends after 6 months or when the credit runs out. Zero-spend budget alert recommended.
+- To do: README/ADR-037 still describe Railway as the first host (owner to confirm switching the worked example to AWS); merge `phase-7` and point the server at `main`; live checks.
 
 ### 2026-10-24 — Claude (Phase 7 built: hosting, relink re-admission, load test, runbook)
 - Plan `Phases/10-Hardening.md` approved; the owner asked not to build around Railway, so P35 became host-neutral (Dockerfile + README requirements, Railway as the first example) and the owner said "do what you recommend".

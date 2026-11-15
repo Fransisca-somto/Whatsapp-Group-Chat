@@ -27,6 +27,7 @@ import { cancelPairing, requestPairing } from "@/server/actions/connection";
 type RequestRow = PairingRequestView & { created_at: string };
 
 type ConnectionPanelProps = {
+  tenantId: string;
   initialConnection: WorkerConnection | null;
   initialRequest: RequestRow | null;
   timeZone: string;
@@ -40,7 +41,7 @@ const OPEN = new Set(["requested", "code_issued"]);
 const SHOW_FINISHED_MS = 10 * 60_000;
 
 /** Latest pairing request, kept live through Realtime. */
-function useLatestPairingRequest(initial: RequestRow | null) {
+function useLatestPairingRequest(tenantId: string, initial: RequestRow | null) {
   const [request, setRequest] = useState<RequestRow | null>(initial);
   useEffect(() => {
     const supabase = createClient();
@@ -48,7 +49,12 @@ function useLatestPairingRequest(initial: RequestRow | null) {
       .channel("connection-page-pairing")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "pairing_requests" },
+        {
+          event: "*",
+          schema: "public",
+          table: "pairing_requests",
+          filter: `tenant_id=eq.${tenantId}`,
+        },
         (payload) => {
           const row = payload.new as RequestRow | undefined;
           if (!row?.id) return;
@@ -63,17 +69,18 @@ function useLatestPairingRequest(initial: RequestRow | null) {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [tenantId]);
   return request;
 }
 
 export function ConnectionPanel({
+  tenantId,
   initialConnection,
   initialRequest,
   timeZone,
 }: ConnectionPanelProps) {
-  const { row, readFailed, now } = useWorkerConnection(initialConnection);
-  const request = useLatestPairingRequest(initialRequest);
+  const { row, readFailed, now } = useWorkerConnection(tenantId, initialConnection);
+  const request = useLatestPairingRequest(tenantId, initialRequest);
   const [pending, startTransition] = useTransition();
   const [relinkOpen, setRelinkOpen] = useState(false);
   const [relinkPhone, setRelinkPhone] = useState("");

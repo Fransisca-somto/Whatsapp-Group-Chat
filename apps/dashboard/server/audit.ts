@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 /** Appends a dashboard-user action to bot_actions (data-models.md §3.10). No secrets in detail. */
 export async function auditDashboardAction(input: {
   userId: string;
+  tenantId: string;
   action: string;
   groupId?: string | null;
   detail?: Record<string, Json>;
@@ -14,6 +15,7 @@ export async function auditDashboardAction(input: {
   const { error } = await createAdminClient()
     .from("bot_actions")
     .insert({
+      tenant_id: input.tenantId,
       actor_type: "dashboard_user",
       actor_ref: input.userId,
       action: input.action,

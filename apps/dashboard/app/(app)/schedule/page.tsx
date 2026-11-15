@@ -27,10 +27,10 @@ export default function SchedulePage({ searchParams }: Props) {
 
 async function ScheduleContent({ searchParams }: Props) {
   const params = await searchParams;
-  await requireCurrentUser();
+  const user = await requireCurrentUser();
   const tab = first(params.tab);
   const initialTab: ScheduleTab = SCHEDULE_TABS.find((known) => known === tab) ?? "upcoming";
-  const data = await loadSchedule(first(params.group) ?? null);
+  const data = await loadSchedule(user.tenantId, first(params.group) ?? null);
 
   return (
     <ScheduleView

@@ -35,7 +35,7 @@ async function SettingsContent() {
       .select(
         "company_name, bot_display_name, timezone, ai_chat_model, ai_fallback_model, openrouter_key_hint",
       )
-      .eq("id", 1)
+      .eq("tenant_id", user.tenantId)
       .maybeSingle(),
     listOpenRouterModels(),
   ]);
@@ -46,8 +46,8 @@ async function SettingsContent() {
   if (!settings) {
     return (
       <p className="rounded-xl border bg-surface p-6 text-sm text-muted-foreground">
-        Company settings are missing. Run <span className="font-mono">supabase/seed.sql</span> once
-        in the Supabase SQL Editor, then reload this page.
+        Company settings are missing for your company. Ask the platform admin to check it on the
+        Admin page.
       </p>
     );
   }

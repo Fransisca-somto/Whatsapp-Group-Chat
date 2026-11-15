@@ -1,54 +1,27 @@
-// Worker boot (architecture.md §2): validate env, start logging, take the leader lock, then
-// start leader-only modules: session state, the WhatsApp connection, the pairing watcher, the
-// heartbeat, owner alerts, group/message ingestion, the assistant that answers tags, the
-// background search indexing and the scheduler that posts reminders and announcements.
+// Worker boot (architecture.md §2): validate env, start logging, take the leader lock, then run
+// the leader-only part. Since Phase 8 (ADR-039) that is one WhatsApp session per active tenant,
+// managed by the tenant supervisor (tenants/session.ts holds the per-tenant modules), plus the
+// daily attachment cleanup, which serves every tenant. One lock still covers every connection.
 import { randomUUID } from "node:crypto";
 
 import { createEmbeddingsClient } from "./ai/embeddings.ts";
 import { createOpenRouterClient } from "./ai/openrouter.ts";
-import { createAssistant } from "./assistant/pipeline.ts";
-import { cachedAiSettings, createAiSettingsRepo } from "./db/aiSettingsRepo.ts";
-
-import { createAlertsRepo } from "./db/alertsRepo.ts";
+import { configureDatabaseAlertEmail } from "./db/alertsRepo.ts";
 import { createAttachmentsStore } from "./db/attachmentsStore.ts";
 import { createAuditRepo } from "./db/auditRepo.ts";
-import { createAuthorizedUsersRepo } from "./db/authorizedUsersRepo.ts";
-import { createAuthStateRepo } from "./db/authStateRepo.ts";
-import { createConnectionRepo } from "./db/connectionRepo.ts";
-import { createEmbeddingsRepo } from "./db/embeddingsRepo.ts";
-import { createGroupsRepo } from "./db/groupsRepo.ts";
-import { createKnowledgeRepo } from "./db/knowledgeRepo.ts";
 import { createLockRepo } from "./db/lockRepo.ts";
-import { createMessagesRepo } from "./db/messagesRepo.ts";
-import { createPairingRepo } from "./db/pairingRepo.ts";
-import { createReminderRequestsRepo } from "./db/reminderRequestsRepo.ts";
-import { createScheduledPostsRepo } from "./db/scheduledPostsRepo.ts";
-import { createSearchRepo } from "./db/searchRepo.ts";
 import { createServiceClient } from "./db/supabase.ts";
-import { createUsageRepo } from "./db/usageRepo.ts";
-import { createEmbeddingJob, type EmbeddingJob } from "./embeddings/embeddingJob.ts";
+import { createTenantsRepo } from "./db/tenantsRepo.ts";
 import { EnvError, parseEnv } from "./env.ts";
+import { createResendSender } from "./health/email.ts";
 import { createLeaderLock } from "./lock/leaderLock.ts";
 import { runLeaderLoop, type StartLeaderSession } from "./lock/leaderLoop.ts";
-import { createAlerter } from "./health/alerts.ts";
-import { createResendSender } from "./health/email.ts";
-import { createHeartbeat, type Heartbeat } from "./health/heartbeat.ts";
-import { botIdentity, createIngest } from "./ingest/ingest.ts";
 import { createLogger, type Logger } from "./logger.ts";
 import { bundledFfmpegPath, createVoiceConverter } from "./media/convertVoice.ts";
-import { createPairingWatcher, type PairingWatcher } from "./pairing/pairingWatcher.ts";
-import { createReminderFlow } from "./reminders/reminderFlow.ts";
 import { createAttachmentCleanup, type AttachmentCleanup } from "./scheduler/attachmentCleanup.ts";
-import { createScheduler, type Scheduler } from "./scheduler/scheduler.ts";
-import { createSupabaseAuthState } from "./whatsapp/authState.ts";
-import {
-  createBaileysSocketFactory,
-  createConnectionManager,
-  type ConnectionManager,
-  type SocketLike,
-} from "./whatsapp/connection.ts";
-import { phoneFromJid } from "./whatsapp/jids.ts";
-import { createSendQueue, type SendQueue } from "./whatsapp/sendQueue.ts";
+import { startTenantSession, type SessionShared } from "./tenants/session.ts";
+import { createTenantSupervisor, type TenantSupervisor } from "./tenants/supervisor.ts";
+import { createBaileysSocketFactory } from "./whatsapp/connection.ts";
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
@@ -88,210 +61,73 @@ function main() {
   const db = createServiceClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
   const lock = createLeaderLock({ store: createLockRepo(db), instanceId, logger });
   const stopping = new AbortController();
+  const tenants = createTenantsRepo(db);
 
-  const auth = createSupabaseAuthState({
-    store: createAuthStateRepo(db),
-    encryptionKey: Buffer.from(env.SESSION_ENCRYPTION_KEY, "base64"),
-    logger,
-    canWrite: () => lock.isHeld(),
-  });
-  const connectionRepo = createConnectionRepo(db);
-  const pairingRepo = createPairingRepo(db);
-  const createSocket = createBaileysSocketFactory(logger);
-  const groupsRepo = createGroupsRepo(db);
-  const messagesRepo = createMessagesRepo(db);
-  const auditRepo = createAuditRepo(db);
-  const usageRepo = createUsageRepo(db);
-  // Settings page changes apply within 60 s (api-interfaces.md §2.3).
-  const aiSettings = cachedAiSettings(createAiSettingsRepo(db));
-  const embeddings = createEmbeddingsClient();
-  const attachmentsStore = createAttachmentsStore(db);
   const ffmpegPath = bundledFfmpegPath();
   if (!ffmpegPath) {
     logger.warn("ffmpeg-static is not installed: voice notes will wait until it is (pnpm install)");
   }
-  const convertVoice = createVoiceConverter({ ffmpegPath });
-  const reminders = createReminderFlow({
-    requests: createReminderRequestsRepo(db),
-    authorizedUsers: createAuthorizedUsersRepo(db),
-    audit: auditRepo,
+  const attachments = createAttachmentsStore(db);
+  const shared: SessionShared = {
+    db,
+    instanceId,
     logger,
-  });
-
-  // The socket of the current leader session; null whenever this instance holds none.
-  let currentSocket: SocketLike | null = null;
-  let sendQueue: SendQueue | null = null;
-  const assistant = createAssistant({
-    groups: groupsRepo,
-    messages: messagesRepo,
-    knowledge: createKnowledgeRepo(db),
-    search: createSearchRepo(db),
-    embeddings,
-    reminders,
-    usage: usageRepo,
-    settings: aiSettings,
-    audit: auditRepo,
+    lockHeld: () => lock.isHeld(),
+    encryptionKey: Buffer.from(env.SESSION_ENCRYPTION_KEY, "base64"),
+    createSocket: createBaileysSocketFactory(logger),
+    embeddings: createEmbeddingsClient(),
     ai: createOpenRouterClient({ logger }),
-    send: {
-      enqueue: (message) =>
-        sendQueue
-          ? sendQueue.enqueue(message)
-          : Promise.reject(new Error("no leader session: cannot send")),
-      stop: () => sendQueue?.stop(),
-    },
-    getBot: () => (currentSocket ? botIdentity(currentSocket) : { jid: null, lid: null }),
-    logger,
-  });
-  const ingest = createIngest({
-    groups: groupsRepo,
-    messages: messagesRepo,
-    audit: auditRepo,
-    logger,
-    onTagged: (message, group, raw) => assistant.handle(message, group, raw),
-    onReplyWord: (message, group, raw) => assistant.handleReplyWord(message, group, raw),
-  });
-  const alerter = createAlerter({
-    store: createAlertsRepo(db),
+    attachments,
+    convertVoice: createVoiceConverter({ ffmpegPath }),
     email: createResendSender({ apiKey: env.RESEND_API_KEY, from: env.ALERT_FROM_EMAIL, logger }),
-    recipients: env.OWNER_ALERT_EMAILS,
-    apiKey: env.RESEND_API_KEY,
-    from: env.ALERT_FROM_EMAIL,
-    logger,
-    ...(env.DASHBOARD_URL ? { dashboardUrl: env.DASHBOARD_URL } : {}),
-  });
+    alert: {
+      apiKey: env.RESEND_API_KEY,
+      from: env.ALERT_FROM_EMAIL,
+      platformRecipients: env.OWNER_ALERT_EMAILS,
+      ...(env.DASHBOARD_URL ? { dashboardUrl: env.DASHBOARD_URL } : {}),
+    },
+    ownerEmail: (tenantId) => tenants.ownerEmail(tenantId),
+  };
 
   const startLeaderSession: StartLeaderSession = async (signal) => {
-    let connection: ConnectionManager | undefined;
-    let pairing: PairingWatcher | undefined;
-    let heartbeat: Heartbeat | undefined;
-    let indexing: EmbeddingJob | undefined;
-    let scheduler: Scheduler | undefined;
+    let supervisor: TenantSupervisor | undefined;
     let cleanup: AttachmentCleanup | undefined;
 
     const stopAll = async () => {
-      // Lock lost: never write session state again from this instance.
-      if (!lock.isHeld()) auth.discardPending();
-      // Before the send queue stops, so a post in flight is finished or put back, never lost.
-      await scheduler?.stop();
+      await supervisor?.stop(); // every tenant's socket closes here
       await cleanup?.stop();
-      sendQueue?.stop();
-      sendQueue = null;
-      currentSocket = null;
-      heartbeat?.stop();
-      await connection?.stop(); // closes the socket first
-      await indexing?.stop();
-      await pairing?.stop();
-    };
-    const checkpoint = () => {
-      if (signal.aborted) throw new Error("lock lost or shutdown during startup");
     };
 
     try {
-      await auth.load();
-      checkpoint();
-      // Keep the database's offline check using the same email settings as this worker.
-      await alerter.configureDatabase().catch((error: unknown) => {
+      // Keep the database's offline check using the same Resend settings as this worker.
+      await configureDatabaseAlertEmail(
+        db,
+        env.RESEND_API_KEY,
+        env.OWNER_ALERT_EMAILS,
+        env.ALERT_FROM_EMAIL,
+      ).catch((error: unknown) => {
         logger.error({ err: error }, "could not configure database alert email");
       });
-      // A running leader means the worker is no longer offline.
-      await alerter.resolve(["offline"]).catch((error: unknown) => {
-        logger.error({ err: error }, "could not resolve offline alerts");
-      });
-      checkpoint();
+      if (signal.aborted) throw new Error("lock lost or shutdown during startup");
 
-      connection = createConnectionManager({
-        auth,
-        store: connectionRepo,
-        logger,
-        instanceId,
-        createSocket,
-        canConnect: () => lock.isHeld() && !signal.aborted,
-        onSocket: (sock) => {
-          currentSocket = sock;
-          ingest.attach(sock);
-        },
-        onAlert: (kind, detail) => {
-          if (kind !== "offline") alerter.notify(kind, detail);
-        },
-      });
-      connection.onOpen((sock) => {
-        void ingest.syncOnOpen(sock).catch((error: unknown) => {
-          logger.error({ err: error }, "group sync failed");
-        });
-        void alerter
-          .resolve(["logged_out", "conflict", "reconnect_failures"])
-          .catch((error: unknown) => {
-            logger.error({ err: error }, "could not resolve alerts");
-          });
-      });
-      // Only the lock holder sends; a fenced session never reaches WhatsApp.
-      sendQueue = createSendQueue({
-        getSocket: () => (lock.isHeld() && !signal.aborted ? currentSocket : null),
+      supervisor = createTenantSupervisor({
+        store: tenants,
+        // A tenant session stops when the supervisor says so or when the leader session ends.
+        startSession: (tenantId, tenantSignal) =>
+          startTenantSession(shared, tenantId, AbortSignal.any([signal, tenantSignal])),
         logger,
       });
-      pairing = createPairingWatcher({
-        store: pairingRepo,
-        connection,
-        logger,
-        onRelink: async () => {
-          const marked = await groupsRepo.markForRelink(new Date());
-          logger.info({ groups: marked }, "group statuses recorded before the number change");
-          await auditRepo
-            .record({ action: "relink_started", actorType: "system", detail: { groups: marked } })
-            .catch((error: unknown) => logger.error({ err: error }, "audit write failed"));
-        },
-      });
-      heartbeat = createHeartbeat({ store: connectionRepo, instanceId, logger });
-      scheduler = createScheduler({
-        store: createScheduledPostsRepo(db),
-        send: sendQueue,
-        isConnected: () => lock.isHeld() && !signal.aborted && connection!.isOpen(),
-        settings: aiSettings,
-        audit: auditRepo,
-        expireReminderRequests: () => reminders.expireOverdue(),
-        attachments: attachmentsStore,
-        convertVoice,
-        recordBotMessage: async (groupId, waMessageId, text, type) => {
-          const bot = currentSocket ? botIdentity(currentSocket) : { jid: null, lid: null };
-          await messagesRepo.insertIfNew({
-            groupId,
-            waMessageId,
-            senderJid: bot.jid ?? bot.lid ?? "bot",
-            senderPhoneE164: phoneFromJid(bot.jid),
-            senderName: null,
-            isFromBot: true,
-            type,
-            body: text,
-            quotedWaMessageId: null,
-            mentionsBot: false,
-            sentAt: new Date(),
-            handledStatus: null,
-          });
-        },
-        logger,
-      });
-      cleanup = createAttachmentCleanup({ store: attachmentsStore, audit: auditRepo, logger });
-      indexing = createEmbeddingJob({
-        store: createEmbeddingsRepo(db),
-        settings: aiSettings,
-        embeddings,
-        usage: usageRepo,
+      cleanup = createAttachmentCleanup({
+        store: attachments,
+        auditFor: (tenantId) => createAuditRepo(db, tenantId),
         logger,
       });
 
-      await connection.start();
-      checkpoint();
-      await pairing.start();
-      checkpoint();
-      await heartbeat.start();
-      checkpoint();
-      indexing.start();
-      await scheduler.start();
-      checkpoint();
+      await supervisor.start();
+      if (signal.aborted) throw new Error("lock lost or shutdown during startup");
       cleanup.start();
       return stopAll;
     } catch (error) {
-      // Never leave a half-started session (above all, an open socket) behind.
       await stopAll().catch((stopError: unknown) => {
         logger.error({ err: stopError }, "cleanup after failed startup errored");
       });
@@ -312,7 +148,7 @@ function main() {
 
     stopping.abort();
     try {
-      await loop; // stops the leader session (socket closes first)
+      await loop; // stops every tenant session (sockets close first)
       await lock.release(); // then the lease, per architecture.md §5
     } catch (error) {
       logger.error({ err: error }, "worker: error during shutdown");

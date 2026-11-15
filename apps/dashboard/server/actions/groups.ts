@@ -94,6 +94,7 @@ export async function changeGroupStatus(
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: AUDIT_ACTION[action],
     groupId,
     detail: { name: group.name, from: current, to: target },
@@ -139,6 +140,7 @@ export async function updateGroupSettings(input: unknown): Promise<ActionResult>
 
   await audit({
     userId: user.userId,
+    tenantId: user.tenantId,
     action: "group_settings_updated",
     groupId,
     detail: { reminderPermission, aiEnabled, allowGeneralKnowledge, dailyReplyCap, retentionDays },

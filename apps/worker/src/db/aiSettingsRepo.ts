@@ -14,21 +14,21 @@ export type AssistantSettings = {
 
 export type AiSettingsStore = { load(): Promise<AssistantSettings> };
 
-export function createAiSettingsRepo(db: ServiceClient): AiSettingsStore {
+export function createAiSettingsRepo(db: ServiceClient, tenantId: string): AiSettingsStore {
   return {
     async load() {
       const [settings, key] = await Promise.all([
         db
           .from("company_settings")
           .select("company_name, bot_display_name, timezone, ai_chat_model, ai_fallback_model")
-          .eq("id", 1)
+          .eq("tenant_id", tenantId)
           .maybeSingle(),
-        db.rpc("get_openrouter_key"),
+        db.rpc("get_openrouter_key", { p_tenant_id: tenantId }),
       ]);
       if (settings.error)
         throw new Error(`company_settings read failed: ${settings.error.message}`);
       if (key.error) throw new Error(`get_openrouter_key failed: ${key.error.message}`);
-      if (!settings.data) throw new Error("company_settings row is missing (run the seed)");
+      if (!settings.data) throw new Error("company_settings row is missing for this tenant");
       return {
         companyName: settings.data.company_name,
         botName: settings.data.bot_display_name,

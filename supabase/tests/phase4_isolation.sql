@@ -10,13 +10,15 @@ do $$
 declare
   v_a uuid := gen_random_uuid();
   v_b uuid := gen_random_uuid();
+  v_t uuid;  -- a throwaway tenant (migration 0016: every group belongs to a tenant)
   v_query extensions.vector := array_fill(0.1::real, array[1536])::extensions.vector;
   v_count int;
   v_leaks int;
 begin
-  insert into public.groups (id, wa_group_jid, name, status) values
-    (v_a, 'phase4-isolation-a-' || v_a || '@g.us', 'Isolation test A', 'active'),
-    (v_b, 'phase4-isolation-b-' || v_b || '@g.us', 'Isolation test B', 'active');
+  insert into public.tenants (name) values ('Isolation test tenant') returning id into v_t;
+  insert into public.groups (id, tenant_id, wa_group_jid, name, status) values
+    (v_a, v_t, 'phase4-isolation-a-' || v_a || '@g.us', 'Isolation test A', 'active'),
+    (v_b, v_t, 'phase4-isolation-b-' || v_b || '@g.us', 'Isolation test B', 'active');
 
   -- Same words and the same embedding in both groups: group B's rows are as close as A's.
   insert into public.group_messages
@@ -64,6 +66,7 @@ begin
   delete from public.knowledge_entries where group_id in (v_a, v_b);
   delete from public.group_messages where group_id in (v_a, v_b);
   delete from public.groups where id in (v_a, v_b);
+  delete from public.tenants where id = v_t;
 end;
 $$;
 

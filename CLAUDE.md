@@ -38,7 +38,7 @@ The only exceptions: answering questions, reading files, and running read-only c
 
 ## 2. What This Project Is (one paragraph)
 
-A WhatsApp **group assistant** for a single company. A Node/TypeScript worker uses the Baileys library to run one linked WhatsApp number that sits in multiple staff groups. It answers questions when tagged, using each group's own training plus searchable per-group history, lets authorized users create one-off reminders by tagging it (with confirmation), and posts scheduled announcements and reminders. A Next.js dashboard on Vercel manages groups and their training, the AI provider (the company's own OpenRouter key and models), authorized users, reminders, announcements, pairing and worker health. Nothing is company-specific in code, so the project can be copied for another company. Supabase holds all data. The company's existing customer chats on the official Meta Cloud API are **separate and must not be touched**. Full details: `Workflow/project-overview.md`.
+A WhatsApp **group assistant** for many companies (tenants, ADR-039). Each company has its own owner, staff, data and one linked WhatsApp number in its staff groups; one Node/TypeScript worker uses the Baileys library to run every company's number, and companies never see each other's data. It answers questions when tagged, using each group's own training plus searchable per-group history, lets authorized users create one-off reminders by tagging it (with confirmation), and posts scheduled announcements and reminders. A Next.js dashboard on Vercel manages groups and their training, the AI provider (each company's own OpenRouter key and models), authorized users, reminders, announcements, pairing, worker health, the team (owner adds staff) and, for the platform admin, the companies themselves. Nothing is company-specific in code. Supabase holds all data. The company's existing customer chats on the official Meta Cloud API are **separate and must not be touched**. Full details: `Workflow/project-overview.md`.
 
 ---
 
@@ -62,13 +62,14 @@ These apply everywhere. If a task seems to require breaking one, stop and raise 
 1. **Plan before you build** (section 1).
 2. **Out of scope means out of scope.** If it is listed under "Out of Scope" in `project-overview.md`, do not build it, even partially, even "for later".
 3. **The AI proposes, code authorizes.** The LLM may classify intent and parse text. It must never decide permissions, never write to the database directly, and its output must always be validated by deterministic code before any action.
-4. **Exactly one WhatsApp connection.** Never write code that could let two worker instances connect at once. All connection logic goes through the leader lock (`architecture.md` §5).
+4. **Exactly one WhatsApp connection per number.** Never write code that could let two worker instances connect at once. All connection logic goes through the leader lock and the tenant supervisor (`architecture.md` §5).
 5. **Never touch the customer-chat system** (Meta Cloud API webhooks, customer conversation tables). This project does not use the Cloud API at all; owner alerts go by email through Resend (ADR-025).
 6. **Schema changes only via migrations** in `supabase/migrations/`. Never edit the database by hand. Every schema change must also update `Workflow/data-models.md` in the same task.
 7. **No secrets in code.** Use environment variables listed in `architecture.md` §8.
 8. **Types are shared, not duplicated.** Shared types and zod schemas live in `packages/shared`.
 9. **Follow existing patterns.** Before adding a library, pattern or folder, check `architecture.md`. If it is not there, propose it in your plan.
 10. **Do not "improve" unrelated code.** Stay inside the approved plan's file list.
+11. **Every query names its tenant.** Worker repositories and dashboard inserts always filter or set `tenant_id`; never read or change another tenant's rows (ADR-039).
 
 ---
 

@@ -7,8 +7,8 @@ import { formatLastSeen, secondsSinceHeartbeat, workerDisplayStatus } from "@/li
 import { StatusBadge } from "./StatusBadge";
 
 /** Live worker indicator for the top bar (ui-context.md §5): badge + "last seen Xs ago". */
-export function WorkerStatus() {
-  const { row, loaded, readFailed, now } = useWorkerConnection();
+export function WorkerStatus({ tenantId }: { tenantId: string }) {
+  const { row, loaded, readFailed, now } = useWorkerConnection(tenantId);
   if (!loaded) return <Skeleton className="h-5 w-24 rounded-full" />;
 
   const status = workerDisplayStatus(row, now, readFailed);

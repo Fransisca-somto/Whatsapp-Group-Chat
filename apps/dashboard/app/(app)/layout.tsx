@@ -19,10 +19,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 async function AuthenticatedShell({ children }: { children: React.ReactNode }) {
   const user = await requireCurrentUser();
   // Posts that failed, were skipped or may not have arrived (P18): a count on the Schedule link.
-  const attention = await countNeedingAttention();
+  const attention = await countNeedingAttention(user.tenantId);
   return (
     <AppShell
-      user={{ displayName: user.displayName, role: user.role }}
+      user={{
+        displayName: user.displayName,
+        role: user.role,
+        tenantId: user.tenantId,
+        isPlatformAdmin: user.isPlatformAdmin,
+      }}
       navBadges={{ "/schedule": attention }}
     >
       {children}

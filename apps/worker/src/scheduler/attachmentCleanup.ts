@@ -20,7 +20,8 @@ export type AttachmentCleanup = {
 
 export function createAttachmentCleanup(options: {
   store: Pick<AttachmentsStore, "dueForCleanup" | "remove">;
-  audit: AuditStore;
+  /** The audit log of the tenant that owned the post (one job serves every tenant). */
+  auditFor: (tenantId: string) => AuditStore;
   logger: Logger;
   intervalMs?: number;
   firstRunMs?: number;
@@ -39,7 +40,8 @@ export function createAttachmentCleanup(options: {
       const posts = await store.remove(paths);
       deleted += paths.length;
       for (const post of posts) {
-        await options.audit
+        await options
+          .auditFor(post.tenantId)
           .record({
             action: "attachment_deleted",
             actorType: "system",

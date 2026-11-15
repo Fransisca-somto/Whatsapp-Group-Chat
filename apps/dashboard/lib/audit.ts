@@ -5,7 +5,7 @@ import { formatPhoneForDisplay, type Json } from "@soft-agent-support/shared";
 export const AUDIT_PAGE = 50;
 
 export const AUDIT_COLUMNS =
-  "id, created_at, action, actor_type, actor_ref, group_id, detail, groups(name)";
+  "id, created_at, action, actor_type, actor_ref, group_id, detail, groups!bot_actions_group_id_fkey(name)";
 
 export type AuditRow = {
   id: string;
@@ -71,6 +71,12 @@ export const ACTION_LABELS: Record<string, string> = {
   attachment_deleted: "Unused attachment deleted",
   relink_started: "Number change started",
   group_readmitted: "Group back after number change",
+  staff_added: "Staff added",
+  staff_removed: "Staff removed",
+  password_changed: "Password changed",
+  tenant_created: "Company created",
+  tenant_suspended: "Company suspended",
+  tenant_reactivated: "Company reactivated",
 };
 
 export function actionLabel(action: string): string {
@@ -199,7 +205,13 @@ export function auditSummary(row: Pick<AuditRow, "action" | "detail">): string {
     case "authorized_user_added":
     case "authorized_user_updated":
     case "authorized_user_deleted":
+    case "staff_added":
+    case "staff_removed":
       return text(field(d, "name")) ?? "";
+    case "tenant_created":
+    case "tenant_suspended":
+    case "tenant_reactivated":
+      return text(field(d, "companyName")) ?? "";
     case "reminder_requested":
     case "reminder_confirmed":
       return text(field(d, "dueAt")) ? `due ${text(field(d, "dueAt"))}` : "";

@@ -32,19 +32,25 @@ async function ConnectionContent() {
     supabase
       .from("wa_connection")
       .select("status, linked_phone_e164, last_heartbeat_at, last_connected_at, last_error")
-      .eq("id", 1)
+      .eq("tenant_id", user.tenantId)
       .maybeSingle(),
     supabase
       .from("pairing_requests")
       .select("id, kind, status, pairing_code, code_expires_at, error, phone_e164, created_at")
+      .eq("tenant_id", user.tenantId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    supabase.from("company_settings").select("timezone").eq("id", 1).maybeSingle(),
+    supabase
+      .from("company_settings")
+      .select("timezone")
+      .eq("tenant_id", user.tenantId)
+      .maybeSingle(),
     // 7.1: groups still waiting for the new number after a relink.
     supabase
       .from("groups")
       .select("id, name, relinked_at")
+      .eq("tenant_id", user.tenantId)
       .eq("status", "removed")
       .not("relinked_at", "is", null)
       .order("name"),
@@ -58,6 +64,7 @@ async function ConnectionContent() {
     <>
       <ReadmissionChecklist groups={(waiting.data ?? []) as WaitingGroup[]} timeZone={timeZone} />
       <ConnectionPanel
+        tenantId={user.tenantId}
         initialConnection={connection.data}
         initialRequest={request.data}
         timeZone={timeZone}

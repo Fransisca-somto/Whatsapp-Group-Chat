@@ -55,6 +55,8 @@
 
 All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audit.ts` (`auditDashboardAction`); if the audit write fails after the main write succeeded, the action still returns `ok` and logs the error. Each one: (1) gets the session, (2) checks role, (3) validates input with zod, (4) writes, (5) writes a `bot_actions` row for audit where listed, (6) returns `{ ok: true, data } | { ok: false, error: string }`.
 
+**Tenancy (ADR-039, task 8.2).** `getAccessDecision()` returns the user's `tenantId` and `isPlatformAdmin`. Every insert sets `tenant_id` to the user's tenant, every `company_settings` / `wa_connection` read or update filters `tenant_id` (no more `id = 1`), and every audit row carries `tenantId`. Other reads rely on RLS, which only returns the user's tenant. The dashboard's Realtime subscriptions (`wa_connection`, `pairing_requests`) filter `tenant_id=eq.<id>`. Attachments upload to `<tenant id>/<uuid>/<file>`; the browser reads its tenant with `current_tenant_id()`. A suspended tenant's users cannot read their own `dashboard_users` row, so they are signed out as "no access".
+
 | Action | Role | Input schema | Audit |
 |---|---|---|---|
 | `changeGroupStatus` | owner, staff | `ChangeGroupStatusInput { groupId, action: 'approve'\|'pause'\|'resume'\|'archive' }`. Allowed only along `groupActionTarget()` (shared `groups.ts`); the update is conditional on the status read (`eq('status', current)`), so concurrent clicks cannot skip a step. Approve also sets `approved_by` / `approved_at`. Replaces the earlier `approveGroup` + `setGroupStatus`. | ✅ `group_approved` / `group_paused` / `group_resumed` / `group_archived` (detail `from`, `to`) |
@@ -81,6 +83,11 @@ All live in `apps/dashboard/server/actions/`. Audit rows go through `server/audi
 | `saveOpenRouterKey` | owner | `OpenRouterKeyInput { apiKey }`. Checked with OpenRouter `GET /api/v1/key` first (401/403 → "rejected", other failures → "couldn't reach"), then stored with `rpc('set_openrouter_key')`. Returns only `{ hint }` (last 4 characters). | ✅ `ai_key_saved` (detail `hint` only) |
 | `removeOpenRouterKey` | owner | none; `rpc('clear_openrouter_key')` | ✅ `ai_key_removed` |
 | `loadAuditPage` | owner, staff | `LoadAuditPageInput { groupId \| null, action \| null, before }` (ISO timestamp); read-only, 50 per page through RLS, newest first. The `/audit` page reads its first page the same way, with `?group=` and `?action=` filters. | — |
+| `addStaff` | owner | `CreateStaffInput { displayName, email, temporaryPassword }` (password 8–72). Creates a confirmed Supabase Auth login (service role, `auth.admin.createUser`) and a `staff` row in the owner's tenant; deletes the login again if the row fails. "That email already has a login." for a taken email. | ✅ `staff_added` (detail `staffUserId`, `name`, `email`; never the password) |
+| `removeStaff` | owner | `RemoveStaffInput { userId }`. Only a `staff` row of the owner's own tenant; deletes the login (`auth.admin.deleteUser`), the row goes with it. | ✅ `staff_removed` |
+| `changePassword` | owner, staff | `ChangePasswordInput { password, confirm }` (8–72, must match). `auth.updateUser` with the user's own session. | ✅ `password_changed` |
+| `createOwner` | platform admin | `CreateOwnerInput { companyName, timezone, displayName, email, temporaryPassword }`. Service role: login → `tenants` → `company_settings` → `wa_connection` → owner `dashboard_users` row; any failure deletes the tenant (cascade) and the login. | ✅ `tenant_created` in the **admin's** tenant (detail `newTenantId`, `companyName`, `ownerName`, `ownerEmail`) |
+| `setTenantStatus` | platform admin | `SetTenantStatusInput { tenantId, status: 'active'\|'suspended' }`; never the admin's own tenant. Suspended: its users get no access (RLS) and the worker stops its session. | ✅ `tenant_suspended` / `tenant_reactivated` |
 | `updateAiModels` | owner | `AiModelsInput { chatModel, fallbackModel \| null }` (fallback must differ). Both must exist in OpenRouter's live model list (`GET /api/v1/models`, cached 1 h in `server/openrouter.ts`, batch-only and non-text models left out). | ✅ `ai_models_updated` |
 
 `dueAtLocal` is a local date-time string interpreted in the company timezone and converted to UTC on the server with `packages/shared/time.ts`.
@@ -275,18 +282,20 @@ ADR-025. Email replaces the earlier Cloud API WhatsApp alert; the Cloud API is n
 
 **Sending:** `POST https://api.resend.com/emails` with `Authorization: Bearer $RESEND_API_KEY`, body `{ from, to: string[], subject, text }`. Worker: `health/email.ts` (10 s timeout, one retry on network error / 429 / 5xx, no retry on other 4xx).
 
-**Incidents:** one email per incident. An incident is an unresolved `alerts` row of that kind; `incident_key` = `<kind>:<ISO time>`.
+**Recipients (ADR-039):** every incident belongs to one tenant and goes to **that tenant's owner** (their login email, `tenant_owner_email()`). The worker falls back to `OWNER_ALERT_EMAILS` (the platform list) only when the owner's email cannot be read. Resend's test sender only delivers to the Resend account's own address, so other owners receive alerts only once a domain is verified in Resend.
+
+**Incidents:** one email per incident, per tenant. An incident is an unresolved `alerts` row of that kind for that tenant; `incident_key` = `<kind>:<ISO time>`.
 
 | Kind | Raised by | When | Resolved when |
 |---|---|---|---|
 | `logged_out` | worker (`health/alerts.ts`) | logout / bad session / forbidden / multi-device mismatch | the bot connects again |
 | `conflict` | worker | connection replaced by another device | the bot connects again |
 | `reconnect_failures` | worker | 10th consecutive failed reconnect | the bot connects again |
-| `offline` | database (`check_worker_offline()`, every minute) | `last_heartbeat_at` older than 5 min (never if the worker has never run) | heartbeat fresh again, or a leader session starts |
+| `offline` | database (`check_worker_offline()`, every minute) | that tenant's `last_heartbeat_at` older than 5 min (only active tenants whose number was linked) | heartbeat fresh again, or that tenant's session starts |
 
 **Email text:** subject `[Group Assistant] <what happened>`; body says what happened, when (company timezone), the detail, what to do, and a dashboard link when `DASHBOARD_URL` is set.
 
-**Database settings:** on every leader start the worker calls `configure_alert_email(api_key, recipients, from)`, which stores them in Supabase Vault (`alert_resend_api_key`, `alert_recipients`, `alert_from`). The database job reads them from `vault.decrypted_secrets`; nothing secret is in migrations. `pg_net` sends asynchronously, so `sent_at` on an `offline` alert means "queued"; Resend's dashboard shows delivery.
+**Database settings:** on every leader start the worker calls `configure_alert_email(api_key, recipients, from)`, which stores them in Supabase Vault (`alert_resend_api_key`, `alert_recipients`, `alert_from`). Since 0016 the offline email goes to each tenant's owner, so `alert_recipients` is no longer read. The database job reads them from `vault.decrypted_secrets`; nothing secret is in migrations. `pg_net` sends asynchronously, so `sent_at` on an `offline` alert means "queued"; Resend's dashboard shows delivery.
 
 ---
 

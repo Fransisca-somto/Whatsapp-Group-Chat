@@ -14,10 +14,11 @@ export type AuditEntry = {
 
 export type AuditStore = { record(entry: AuditEntry): Promise<void> };
 
-export function createAuditRepo(db: ServiceClient): AuditStore {
+export function createAuditRepo(db: ServiceClient, tenantId: string): AuditStore {
   return {
     async record(entry) {
       const { error } = await db.from("bot_actions").insert({
+        tenant_id: tenantId,
         action: entry.action,
         actor_type: entry.actorType,
         actor_ref: entry.actorRef ?? null,

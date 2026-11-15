@@ -24,7 +24,7 @@ export const SCHEDULE_TAB_LABELS: Record<ScheduleTab, string> = {
 export const SCHEDULE_LIST_LIMIT = 100;
 
 export const SCHEDULED_POST_COLUMNS =
-  "id, group_id, kind, body, due_at, recurrence_rule, status, sent_at, sent_late, last_error, dismissed_at, created_via, created_by_phone_e164, attachment_path, attachment_kind, attachment_mime, attachment_name, attachment_size, attachment_seconds, attachment_deleted_at, groups(name)";
+  "id, group_id, kind, body, due_at, recurrence_rule, status, sent_at, sent_late, last_error, dismissed_at, created_via, created_by_phone_e164, attachment_path, attachment_kind, attachment_mime, attachment_name, attachment_size, attachment_seconds, attachment_deleted_at, groups!scheduled_posts_group_id_fkey(name)";
 
 export type ScheduledPostView = {
   id: string;

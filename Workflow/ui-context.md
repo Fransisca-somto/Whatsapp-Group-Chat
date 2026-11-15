@@ -37,7 +37,7 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 | connected / active / sent | `--status-ok` (green) | Healthy, done |
 | pairing / pending / scheduled | `--status-info` (blue) | Waiting, in progress |
 | late / delivery uncertain / paused | `--status-warn` (amber) | Needs attention |
-| offline / logged out / failed / removed | `--status-error` (red) | Broken |
+| offline / logged out / failed / removed / suspended | `--status-error` (red) | Broken, or a company shut off by the platform admin |
 | cancelled / skipped / archived / unknown | `--status-neutral` (gray) | Inactive, or the dashboard could not read the status |
 
 ### 2.3 Typography
@@ -66,7 +66,7 @@ Defined as CSS variables in `app/globals.css` (dark values under `prefers-color-
 
 The window itself never scrolls: the app shell is exactly the screen's height, and the sidebar and the page area (`<main data-page-scroll>`) each scroll on their own. The top bar and sidebar therefore never move, and a page can fill the screen (the group chat measures itself against `data-page-scroll`).
 
-**Sidebar navigation (in this order):** Overview · Groups · Reminders & Announcements · Training · Authorized Users · Connection · Audit Log · Settings. ("Training" was "Knowledge" until 2026-10-22; its route is still `/knowledge`.)
+**Sidebar navigation (in this order):** Overview · Groups · Reminders & Announcements · Training · Authorized Users · Connection · Audit Log · Settings · Team · Companies (admin). Connection, Settings and Team are owner-only; Companies only for platform admins (ADR-039). The user menu has **Change password** and Log out. ("Training" was "Knowledge" until 2026-10-22; its route is still `/knowledge`.)
 
 ## 4. Pages
 
@@ -80,6 +80,8 @@ The window itself never scrolls: the app shell is exactly the screen's height, a
 | `/authorized-users` | Bot admin list | Built. Header explains that in "admins only" groups only listed people can set reminders by tagging the bot. **Add person**; rows show name (and "Turned off"), number (`formatPhoneForDisplay`, monospace), "All groups" or the group names; an on/off switch, edit, and remove (confirmation: "Reminders they already set stay scheduled"). `AuthorizedUserDialog`: name, WhatsApp number (`<PhoneInput>`), All groups switch, otherwise group checkboxes (at least one). Empty state explains the list. |
 | `/connection` | Pairing & relink | Current number, status, last heartbeat, Link / Relink button, pairing code display with countdown. **Re-admission checklist** (built, 7.1, `ReadmissionChecklist`): after a relink, an amber card "Add the new number to N groups" with when the number was changed, the instruction, and each waiting group (link) marked "Waiting for the new number"; groups leave the list as the new number is added, and the card disappears when none are left. Owner only. |
 | `/audit` | Bot action log | Built. Filters for group and action (kept in `?group=` / `?action=`); table of time, group, who (dashboard user name, member phone, or System), action and a one-line result (e.g. "answered · 412 tokens", "answered · found 3 older messages · 412 tokens", "tried to change the rules", "1,250 messages older than 90 days" for the daily retention clean-up); 50 per page with "Load older"; cards on mobile. Labels and summaries in `lib/audit.ts`. |
+| `/team` | Team (owner only) | The owner and their staff (name, login email, Owner/Staff badge). **Add staff** dialog: name, login email, temporary password with a **Suggest** button (`components/team/PersonFields`); Remove with a confirm dialog (deletes the login). Staff never see this page. |
+| `/admin` | Companies (platform admins only) | Every tenant: company name, owner name and email, staff count, WhatsApp status badge and number, date added; **Suspend** / **Reactivate** with a confirm dialog (never on your own company). **New owner** dialog: company name, time zone (type-to-search), owner's name, login email, temporary password. |
 | `/settings` | Company and AI provider | **Company:** company name, bot name, timezone (type-to-search list). **AI provider:** OpenRouter key (password field; after saving only "ends in …abcd" with Replace and Remove), chat model and optional fallback model (type-to-search list of OpenRouter models with prices). Owner only. |
 
 ## 5. Component Conventions

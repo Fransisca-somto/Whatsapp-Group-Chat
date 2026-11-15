@@ -58,12 +58,16 @@ const toRequest = (row: Row): ReminderRequest => ({
   expiresAt: new Date(row.expires_at),
 });
 
-export function createReminderRequestsRepo(db: ServiceClient): ReminderRequestStore {
+export function createReminderRequestsRepo(
+  db: ServiceClient,
+  tenantId: string,
+): ReminderRequestStore {
   return {
     async create(request) {
       const { error: supersedeError } = await db
         .from("pending_reminder_requests")
         .update({ status: "superseded" })
+        .eq("tenant_id", tenantId)
         .eq("group_id", request.groupId)
         .eq("requester_jid", request.requesterJid)
         .eq("status", "awaiting");
@@ -73,6 +77,7 @@ export function createReminderRequestsRepo(db: ServiceClient): ReminderRequestSt
       const { data, error } = await db
         .from("pending_reminder_requests")
         .insert({
+          tenant_id: tenantId,
           group_id: request.groupId,
           requester_jid: request.requesterJid,
           requester_phone_e164: request.requesterPhoneE164,
@@ -91,7 +96,8 @@ export function createReminderRequestsRepo(db: ServiceClient): ReminderRequestSt
       const { error } = await db
         .from("pending_reminder_requests")
         .update({ confirmation_wa_message_id: waMessageId })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("tenant_id", tenantId);
       if (error) throw new Error(`pending_reminder_requests update failed: ${error.message}`);
     },
 
@@ -99,6 +105,7 @@ export function createReminderRequestsRepo(db: ServiceClient): ReminderRequestSt
       const { data, error } = await db
         .from("pending_reminder_requests")
         .select(COLUMNS)
+        .eq("tenant_id", tenantId)
         .eq("group_id", groupId)
         .eq("requester_jid", requesterJid)
         .eq("status", "awaiting")
@@ -113,6 +120,7 @@ export function createReminderRequestsRepo(db: ServiceClient): ReminderRequestSt
       const { data, error } = await db
         .from("pending_reminder_requests")
         .select("id")
+        .eq("tenant_id", tenantId)
         .eq("group_id", groupId)
         .eq("requester_jid", requesterJid)
         .in("status", ["awaiting", "expired"])
@@ -137,6 +145,7 @@ export function createReminderRequestsRepo(db: ServiceClient): ReminderRequestSt
         .from("pending_reminder_requests")
         .update({ status: "declined" })
         .eq("id", id)
+        .eq("tenant_id", tenantId)
         .eq("status", "awaiting")
         .select("id");
       if (error) throw new Error(`pending_reminder_requests update failed: ${error.message}`);
@@ -147,6 +156,7 @@ export function createReminderRequestsRepo(db: ServiceClient): ReminderRequestSt
       const { data, error } = await db
         .from("pending_reminder_requests")
         .update({ status: "expired" })
+        .eq("tenant_id", tenantId)
         .eq("status", "awaiting")
         .lte("expires_at", now.toISOString())
         .select(COLUMNS);

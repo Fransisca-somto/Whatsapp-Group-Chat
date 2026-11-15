@@ -22,15 +22,21 @@ export const getAccessDecision = cache(async (): Promise<AccessDecision> => {
     return decideAccess(null, null);
   }
 
-  const { data: row, error } = await supabase
-    .from("dashboard_users")
-    .select("display_name, role")
-    .eq("user_id", userId)
-    .maybeSingle();
+  const [{ data: row, error }, { data: isAdmin, error: adminError }] = await Promise.all([
+    supabase
+      .from("dashboard_users")
+      .select("display_name, role, tenant_id")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabase.rpc("is_platform_admin"),
+  ]);
   if (error) {
     throw new Error(`Could not load dashboard role: ${error.message}`);
   }
-  return decideAccess(userId, row);
+  if (adminError) {
+    throw new Error(`Could not check platform admin: ${adminError.message}`);
+  }
+  return decideAccess(userId, row, isAdmin === true);
 });
 
 /**
