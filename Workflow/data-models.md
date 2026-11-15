@@ -27,6 +27,7 @@ groups ─┬── knowledge_entries          (per group training, ADR-026)
 
 **Tenancy (migration 0016, ADR-039).** Every table except `tenants`, `platform_admins` and `worker_lock` has `tenant_id uuid not null` (FK → tenants on delete cascade). Rules:
 - Tables with a `group_id` also have a composite foreign key `(group_id, tenant_id) → groups (id, tenant_id)`, so a row can never point at another tenant's group; `authorized_user_groups` also has `(authorized_user_id, tenant_id) → authorized_users (id, tenant_id)`. Delete behaviour matches each table's plain `group_id` foreign key.
+- Because of the second foreign key, a PostgREST embed must name the original one, e.g. `groups!bot_actions_group_id_fkey(name)` or `authorized_user_groups!authorized_user_groups_authorized_user_id_fkey(group_id)`; a bare `groups(name)` fails with "more than one relationship".
 - A `BEFORE INSERT` trigger `fill_tenant_id()` fills a missing `tenant_id` from the row's group, otherwise from the signed-in dashboard user (`current_tenant_id()`). Application code still passes `tenant_id` explicitly; the trigger mainly serves database functions such as `confirm_reminder_request()`.
 - A `BEFORE UPDATE` trigger `block_tenant_change()` rejects any change of `tenant_id`.
 - Today's data at the time of 0016 became **tenant #1**; its owner became the platform admin.

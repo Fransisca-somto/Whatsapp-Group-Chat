@@ -13,7 +13,9 @@ export function createAuthorizedUsersRepo(
     async listActive() {
       const { data, error } = await db
         .from("authorized_users")
-        .select("phone_e164, all_groups, authorized_user_groups(group_id)")
+        .select(
+          "phone_e164, all_groups, authorized_user_groups!authorized_user_groups_authorized_user_id_fkey(group_id)",
+        )
         .eq("tenant_id", tenantId)
         .eq("is_active", true);
       if (error) throw new Error(`authorized_users read failed: ${error.message}`);

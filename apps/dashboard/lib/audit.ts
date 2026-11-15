@@ -5,7 +5,7 @@ import { formatPhoneForDisplay, type Json } from "@soft-agent-support/shared";
 export const AUDIT_PAGE = 50;
 
 export const AUDIT_COLUMNS =
-  "id, created_at, action, actor_type, actor_ref, group_id, detail, groups(name)";
+  "id, created_at, action, actor_type, actor_ref, group_id, detail, groups!bot_actions_group_id_fkey(name)";
 
 export type AuditRow = {
   id: string;

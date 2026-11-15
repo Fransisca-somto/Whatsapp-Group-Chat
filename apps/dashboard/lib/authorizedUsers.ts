@@ -1,7 +1,7 @@
 // Shapes for the Authorized users page (ui-context.md §4 `/authorized-users`).
 
 export const AUTHORIZED_USER_COLUMNS =
-  "id, display_name, phone_e164, all_groups, is_active, authorized_user_groups(group_id)";
+  "id, display_name, phone_e164, all_groups, is_active, authorized_user_groups!authorized_user_groups_authorized_user_id_fkey(group_id)";
 
 export type AuthorizedUserView = {
   id: string;

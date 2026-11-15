@@ -98,7 +98,10 @@ async function GroupContent({ params, searchParams }: Props) {
       .maybeSingle(),
     supabase.from("knowledge_entries").select(TRAINING_COLUMNS).eq("group_id", id).order("title"),
     // Other groups' training sizes, for "Copy from group". Counts only, no content.
-    supabase.from("knowledge_entries").select("group_id, groups(name)").neq("group_id", id),
+    supabase
+      .from("knowledge_entries")
+      .select("group_id, groups!knowledge_entries_group_id_fkey(name)")
+      .neq("group_id", id),
     // The bot's WhatsApp IDs, so "@52055741849776" mentions can show as "@Assistant".
     supabase
       .from("wa_connection")

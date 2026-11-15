@@ -41,35 +41,35 @@ export type Database = {
     Tables: {
       ai_usage_daily: {
         Row: {
-          tenant_id: string
           created_at: string
           est_cost_usd: number
           group_id: string
           input_tokens: number
           output_tokens: number
           reply_count: number
+          tenant_id: string
           updated_at: string
           usage_date: string
         }
         Insert: {
-          tenant_id: string
           created_at?: string
           est_cost_usd?: number
           group_id: string
           input_tokens?: number
           output_tokens?: number
           reply_count?: number
+          tenant_id: string
           updated_at?: string
           usage_date: string
         }
         Update: {
-          tenant_id?: string
           created_at?: string
           est_cost_usd?: number
           group_id?: string
           input_tokens?: number
           output_tokens?: number
           reply_count?: number
+          tenant_id?: string
           updated_at?: string
           usage_date?: string
         }
@@ -81,59 +81,81 @@ export type Database = {
             referencedRelation: "groups"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "ai_usage_daily_group_tenant_fkey"
+            columns: ["group_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "ai_usage_daily_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
         ]
       }
       alerts: {
         Row: {
-          tenant_id: string
           created_at: string
           id: string
           incident_key: string
           kind: string
           resolved_at: string | null
           sent_at: string | null
+          tenant_id: string
           updated_at: string
         }
         Insert: {
-          tenant_id: string
           created_at?: string
           id?: string
           incident_key: string
           kind: string
           resolved_at?: string | null
           sent_at?: string | null
+          tenant_id: string
           updated_at?: string
         }
         Update: {
-          tenant_id?: string
           created_at?: string
           id?: string
           incident_key?: string
           kind?: string
           resolved_at?: string | null
           sent_at?: string | null
+          tenant_id?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "alerts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       authorized_user_groups: {
         Row: {
-          tenant_id: string
           authorized_user_id: string
           created_at: string
           group_id: string
+          tenant_id: string
         }
         Insert: {
-          tenant_id: string
           authorized_user_id: string
           created_at?: string
           group_id: string
+          tenant_id: string
         }
         Update: {
-          tenant_id?: string
           authorized_user_id?: string
           created_at?: string
           group_id?: string
+          tenant_id?: string
         }
         Relationships: [
           {
@@ -150,44 +172,72 @@ export type Database = {
             referencedRelation: "groups"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "authorized_user_groups_group_tenant_fkey"
+            columns: ["group_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "authorized_user_groups_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "authorized_user_groups_user_tenant_fkey"
+            columns: ["authorized_user_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "authorized_users"
+            referencedColumns: ["id", "tenant_id"]
+          },
         ]
       }
       authorized_users: {
         Row: {
-          tenant_id: string
           all_groups: boolean
           created_at: string
           display_name: string
           id: string
           is_active: boolean
           phone_e164: string
+          tenant_id: string
           updated_at: string
         }
         Insert: {
-          tenant_id: string
           all_groups?: boolean
           created_at?: string
           display_name: string
           id?: string
           is_active?: boolean
           phone_e164: string
+          tenant_id: string
           updated_at?: string
         }
         Update: {
-          tenant_id?: string
           all_groups?: boolean
           created_at?: string
           display_name?: string
           id?: string
           is_active?: boolean
           phone_e164?: string
+          tenant_id?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "authorized_users_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       bot_actions: {
         Row: {
-          tenant_id: string
           action: string
           actor_ref: string | null
           actor_type: string
@@ -196,9 +246,9 @@ export type Database = {
           group_id: string | null
           id: string
           source_wa_message_id: string | null
+          tenant_id: string
         }
         Insert: {
-          tenant_id: string
           action: string
           actor_ref?: string | null
           actor_type: string
@@ -207,9 +257,9 @@ export type Database = {
           group_id?: string | null
           id?: string
           source_wa_message_id?: string | null
+          tenant_id: string
         }
         Update: {
-          tenant_id?: string
           action?: string
           actor_ref?: string | null
           actor_type?: string
@@ -218,6 +268,7 @@ export type Database = {
           group_id?: string | null
           id?: string
           source_wa_message_id?: string | null
+          tenant_id?: string
         }
         Relationships: [
           {
@@ -227,11 +278,24 @@ export type Database = {
             referencedRelation: "groups"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "bot_actions_group_tenant_fkey"
+            columns: ["group_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "bot_actions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
         ]
       }
       company_settings: {
         Row: {
-          tenant_id: string
           ai_chat_model: string | null
           ai_fallback_model: string | null
           bot_display_name: string
@@ -239,11 +303,11 @@ export type Database = {
           created_at: string
           openrouter_key_hint: string | null
           owner_alert_phone: string | null
+          tenant_id: string
           timezone: string
           updated_at: string
         }
         Insert: {
-          tenant_id: string
           ai_chat_model?: string | null
           ai_fallback_model?: string | null
           bot_display_name?: string
@@ -251,11 +315,11 @@ export type Database = {
           created_at?: string
           openrouter_key_hint?: string | null
           owner_alert_phone?: string | null
+          tenant_id: string
           timezone: string
           updated_at?: string
         }
         Update: {
-          tenant_id?: string
           ai_chat_model?: string | null
           ai_fallback_model?: string | null
           bot_display_name?: string
@@ -263,41 +327,57 @@ export type Database = {
           created_at?: string
           openrouter_key_hint?: string | null
           owner_alert_phone?: string | null
+          tenant_id?: string
           timezone?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "company_settings_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: true
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       dashboard_users: {
         Row: {
-          tenant_id: string
           created_at: string
           display_name: string
           role: string
+          tenant_id: string
           updated_at: string
           user_id: string
         }
         Insert: {
-          tenant_id: string
           created_at?: string
           display_name: string
           role: string
+          tenant_id: string
           updated_at?: string
           user_id: string
         }
         Update: {
-          tenant_id?: string
           created_at?: string
           display_name?: string
           role?: string
+          tenant_id?: string
           updated_at?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "dashboard_users_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       group_messages: {
         Row: {
-          tenant_id: string
           body: string | null
           created_at: string
           embedding: string | null
@@ -314,12 +394,12 @@ export type Database = {
           sender_name: string | null
           sender_phone_e164: string | null
           sent_at: string
+          tenant_id: string
           tsv: unknown
           updated_at: string
           wa_message_id: string
         }
         Insert: {
-          tenant_id: string
           body?: string | null
           created_at?: string
           embedding?: string | null
@@ -336,12 +416,12 @@ export type Database = {
           sender_name?: string | null
           sender_phone_e164?: string | null
           sent_at: string
+          tenant_id: string
           tsv?: unknown
           updated_at?: string
           wa_message_id: string
         }
         Update: {
-          tenant_id?: string
           body?: string | null
           created_at?: string
           embedding?: string | null
@@ -358,6 +438,7 @@ export type Database = {
           sender_name?: string | null
           sender_phone_e164?: string | null
           sent_at?: string
+          tenant_id?: string
           tsv?: unknown
           updated_at?: string
           wa_message_id?: string
@@ -370,11 +451,24 @@ export type Database = {
             referencedRelation: "groups"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "group_messages_group_tenant_fkey"
+            columns: ["group_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "group_messages_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
         ]
       }
       groups: {
         Row: {
-          tenant_id: string
           ai_enabled: boolean
           allow_general_knowledge: boolean
           approved_at: string | null
@@ -390,11 +484,11 @@ export type Database = {
           retention_days: number | null
           status: string
           status_before_relink: string | null
+          tenant_id: string
           updated_at: string
           wa_group_jid: string
         }
         Insert: {
-          tenant_id: string
           ai_enabled?: boolean
           allow_general_knowledge?: boolean
           approved_at?: string | null
@@ -410,11 +504,11 @@ export type Database = {
           retention_days?: number | null
           status?: string
           status_before_relink?: string | null
+          tenant_id: string
           updated_at?: string
           wa_group_jid: string
         }
         Update: {
-          tenant_id?: string
           ai_enabled?: boolean
           allow_general_knowledge?: boolean
           approved_at?: string | null
@@ -430,6 +524,7 @@ export type Database = {
           retention_days?: number | null
           status?: string
           status_before_relink?: string | null
+          tenant_id?: string
           updated_at?: string
           wa_group_jid?: string
         }
@@ -441,11 +536,17 @@ export type Database = {
             referencedRelation: "dashboard_users"
             referencedColumns: ["user_id"]
           },
+          {
+            foreignKeyName: "groups_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
         ]
       }
       knowledge_entries: {
         Row: {
-          tenant_id: string
           content: string
           created_at: string
           embedding: string | null
@@ -454,13 +555,13 @@ export type Database = {
           group_id: string
           id: string
           is_active: boolean
+          tenant_id: string
           title: string
           tsv: unknown
           updated_at: string
           updated_by: string | null
         }
         Insert: {
-          tenant_id: string
           content: string
           created_at?: string
           embedding?: string | null
@@ -469,13 +570,13 @@ export type Database = {
           group_id: string
           id?: string
           is_active?: boolean
+          tenant_id: string
           title: string
           tsv?: unknown
           updated_at?: string
           updated_by?: string | null
         }
         Update: {
-          tenant_id?: string
           content?: string
           created_at?: string
           embedding?: string | null
@@ -484,6 +585,7 @@ export type Database = {
           group_id?: string
           id?: string
           is_active?: boolean
+          tenant_id?: string
           title?: string
           tsv?: unknown
           updated_at?: string
@@ -498,6 +600,20 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "knowledge_entries_group_tenant_fkey"
+            columns: ["group_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "knowledge_entries_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "knowledge_entries_updated_by_fkey"
             columns: ["updated_by"]
             isOneToOne: false
@@ -508,7 +624,6 @@ export type Database = {
       }
       pairing_requests: {
         Row: {
-          tenant_id: string
           code_expires_at: string | null
           created_at: string
           error: string | null
@@ -518,10 +633,10 @@ export type Database = {
           phone_e164: string
           requested_by: string
           status: string
+          tenant_id: string
           updated_at: string
         }
         Insert: {
-          tenant_id: string
           code_expires_at?: string | null
           created_at?: string
           error?: string | null
@@ -531,10 +646,10 @@ export type Database = {
           phone_e164: string
           requested_by: string
           status?: string
+          tenant_id: string
           updated_at?: string
         }
         Update: {
-          tenant_id?: string
           code_expires_at?: string | null
           created_at?: string
           error?: string | null
@@ -544,6 +659,7 @@ export type Database = {
           phone_e164?: string
           requested_by?: string
           status?: string
+          tenant_id?: string
           updated_at?: string
         }
         Relationships: [
@@ -553,6 +669,93 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "dashboard_users"
             referencedColumns: ["user_id"]
+          },
+          {
+            foreignKeyName: "pairing_requests_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pending_reminder_requests: {
+        Row: {
+          confirmation_wa_message_id: string | null
+          created_at: string
+          draft_body: string
+          draft_due_at: string
+          expires_at: string
+          group_id: string
+          id: string
+          requester_jid: string
+          requester_phone_e164: string | null
+          scheduled_post_id: string | null
+          source_wa_message_id: string
+          status: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          confirmation_wa_message_id?: string | null
+          created_at?: string
+          draft_body: string
+          draft_due_at: string
+          expires_at: string
+          group_id: string
+          id?: string
+          requester_jid: string
+          requester_phone_e164?: string | null
+          scheduled_post_id?: string | null
+          source_wa_message_id: string
+          status?: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          confirmation_wa_message_id?: string | null
+          created_at?: string
+          draft_body?: string
+          draft_due_at?: string
+          expires_at?: string
+          group_id?: string
+          id?: string
+          requester_jid?: string
+          requester_phone_e164?: string | null
+          scheduled_post_id?: string | null
+          source_wa_message_id?: string
+          status?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pending_reminder_requests_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_reminder_requests_group_tenant_fkey"
+            columns: ["group_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
+            foreignKeyName: "pending_reminder_requests_scheduled_post_id_fkey"
+            columns: ["scheduled_post_id"]
+            isOneToOne: false
+            referencedRelation: "scheduled_posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pending_reminder_requests_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -571,75 +774,8 @@ export type Database = {
         }
         Relationships: []
       }
-      pending_reminder_requests: {
-        Row: {
-          tenant_id: string
-          confirmation_wa_message_id: string | null
-          created_at: string
-          draft_body: string
-          draft_due_at: string
-          expires_at: string
-          group_id: string
-          id: string
-          requester_jid: string
-          requester_phone_e164: string | null
-          scheduled_post_id: string | null
-          source_wa_message_id: string
-          status: string
-          updated_at: string
-        }
-        Insert: {
-          tenant_id: string
-          confirmation_wa_message_id?: string | null
-          created_at?: string
-          draft_body: string
-          draft_due_at: string
-          expires_at: string
-          group_id: string
-          id?: string
-          requester_jid: string
-          requester_phone_e164?: string | null
-          scheduled_post_id?: string | null
-          source_wa_message_id: string
-          status?: string
-          updated_at?: string
-        }
-        Update: {
-          tenant_id?: string
-          confirmation_wa_message_id?: string | null
-          created_at?: string
-          draft_body?: string
-          draft_due_at?: string
-          expires_at?: string
-          group_id?: string
-          id?: string
-          requester_jid?: string
-          requester_phone_e164?: string | null
-          scheduled_post_id?: string | null
-          source_wa_message_id?: string
-          status?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "pending_reminder_requests_group_id_fkey"
-            columns: ["group_id"]
-            isOneToOne: false
-            referencedRelation: "groups"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "pending_reminder_requests_scheduled_post_id_fkey"
-            columns: ["scheduled_post_id"]
-            isOneToOne: false
-            referencedRelation: "scheduled_posts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       scheduled_posts: {
         Row: {
-          tenant_id: string
           attachment_deleted_at: string | null
           attachment_kind: string | null
           attachment_mime: string | null
@@ -665,11 +801,11 @@ export type Database = {
           sent_at: string | null
           sent_late: boolean
           status: string
+          tenant_id: string
           updated_at: string
           wa_message_id: string | null
         }
         Insert: {
-          tenant_id: string
           attachment_deleted_at?: string | null
           attachment_kind?: string | null
           attachment_mime?: string | null
@@ -695,11 +831,11 @@ export type Database = {
           sent_at?: string | null
           sent_late?: boolean
           status?: string
+          tenant_id: string
           updated_at?: string
           wa_message_id?: string | null
         }
         Update: {
-          tenant_id?: string
           attachment_deleted_at?: string | null
           attachment_kind?: string | null
           attachment_mime?: string | null
@@ -725,6 +861,7 @@ export type Database = {
           sent_at?: string | null
           sent_late?: boolean
           status?: string
+          tenant_id?: string
           updated_at?: string
           wa_message_id?: string | null
         }
@@ -744,10 +881,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "scheduled_posts_group_tenant_fkey"
+            columns: ["group_id", "tenant_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id", "tenant_id"]
+          },
+          {
             foreignKeyName: "scheduled_posts_parent_post_id_fkey"
             columns: ["parent_post_id"]
             isOneToOne: false
             referencedRelation: "scheduled_posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scheduled_posts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
         ]
@@ -778,31 +929,38 @@ export type Database = {
       }
       wa_auth_state: {
         Row: {
-          tenant_id: string
           created_at: string
           key: string
+          tenant_id: string
           updated_at: string
           value_enc: string
         }
         Insert: {
-          tenant_id: string
           created_at?: string
           key: string
+          tenant_id: string
           updated_at?: string
           value_enc: string
         }
         Update: {
-          tenant_id?: string
           created_at?: string
           key?: string
+          tenant_id?: string
           updated_at?: string
           value_enc?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "wa_auth_state_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       wa_connection: {
         Row: {
-          tenant_id: string
           bot_jid: string | null
           bot_lid: string | null
           created_at: string
@@ -812,10 +970,10 @@ export type Database = {
           last_heartbeat_at: string | null
           linked_phone_e164: string | null
           status: string
+          tenant_id: string
           updated_at: string
         }
         Insert: {
-          tenant_id: string
           bot_jid?: string | null
           bot_lid?: string | null
           created_at?: string
@@ -825,10 +983,10 @@ export type Database = {
           last_heartbeat_at?: string | null
           linked_phone_e164?: string | null
           status?: string
+          tenant_id: string
           updated_at?: string
         }
         Update: {
-          tenant_id?: string
           bot_jid?: string | null
           bot_lid?: string | null
           created_at?: string
@@ -838,9 +996,18 @@ export type Database = {
           last_heartbeat_at?: string | null
           linked_phone_e164?: string | null
           status?: string
+          tenant_id?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "wa_connection_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: true
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       worker_lock: {
         Row: {
@@ -872,13 +1039,13 @@ export type Database = {
         Args: { p_instance: string; p_lease_seconds?: number }
         Returns: boolean
       }
-      check_worker_offline: { Args: never; Returns: undefined }
       attachments_due_for_cleanup: {
         Args: { p_limit?: number }
         Returns: {
           attachment_path: string
         }[]
       }
+      check_worker_offline: { Args: never; Returns: undefined }
       claim_due_posts: {
         Args: { p_claim_token: string; p_limit?: number; p_tenant_id: string }
         Returns: {
@@ -907,8 +1074,8 @@ export type Database = {
           sent_at: string | null
           sent_late: boolean
           status: string
-          updated_at: string
           tenant_id: string
+          updated_at: string
           wa_message_id: string | null
         }[]
         SetofOptions: {
